@@ -1,0 +1,72 @@
+name: XAUUSD Signal Bot
+
+on:
+  schedule:
+    # Runs every 30 minutes during trading sessions (UTC)
+    # Asia session:     00:00 – 08:00 UTC
+    # London session:   07:00 – 16:00 UTC
+    # New York session: 13:00 – 21:00 UTC
+    - cron: "0,30 0-8 * * 1-5"     # Asia session (Mon–Fri)
+    - cron: "0,30 7-16 * * 1-5"    # London session (Mon–Fri)
+    - cron: "0,30 13-21 * * 1-5"   # New York session (Mon–Fri)
+
+  # Allow manual trigger from GitHub Actions tab
+  workflow_dispatch:
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      # Restore signal count (daily limit tracking)
+      - name: Restore signal count cache
+        uses: actions/cache@v4
+        with:
+          path: signal_count.json
+          key: signal-count-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            signal-count-${{ runner.os }}-
+
+      # Restore open signals (live tracker state)
+      - name: Restore open signals cache
+        uses: actions/cache@v4
+        with:
+          path: open_signals.json
+          key: open-signals-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            open-signals-${{ runner.os }}-
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run signal bot
+        env:
+          TELEGRAM_BOT_TOKEN:  ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+          ANTHROPIC_API_KEY:   ${{ secrets.ANTHROPIC_API_KEY }}
+          TWELVEDATA_API_KEY:  ${{ secrets.TWELVEDATA_API_KEY }}
+        run: python xauusd_signal_bot.py
+
+      # Save signal count back to cache
+      - name: Save signal count cache
+        if: always()
+        uses: actions/cache@v4
+        with:
+          path: signal_count.json
+          key: signal-count-${{ runner.os }}-${{ github.run_id }}
+
+      # Save open signals back to cache
+      - name: Save open signals cache
+        if: always()
+        uses: actions/cache@v4
+        with:
+          path: open_signals.json
+          key: open-signals-${{ runner.os }}-${{ github.run_id }}
