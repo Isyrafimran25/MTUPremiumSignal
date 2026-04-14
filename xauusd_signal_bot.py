@@ -1278,9 +1278,9 @@ def run_loop():
         except Exception as e:
             print(f"Loop error: {e}")
 
-        # Sleep 60 seconds before next check
-        print("Sleeping 60 seconds...")
-        time.sleep(60)
+        # Sleep 120 seconds before next check (keeps Twelve Data within 800 credits/day)
+        print("Sleeping 120 seconds...")
+        time.sleep(120)
 
 
 if __name__ == "__main__":
