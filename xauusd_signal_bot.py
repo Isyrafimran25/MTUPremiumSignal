@@ -487,7 +487,8 @@ def generate_signal_message(signal_type: str, d: dict, confidence: str,
         tp1    = round(price - actual_risk * 0.9,  2)
         tp2    = round(price - actual_risk * 1.8,  2)
         tp3_sr = sr.get("support", round(price - actual_risk * 3.0, 2))
-        tp3    = round(max(tp3_sr, price - actual_risk * 3.0), 2)
+        # For SELL: TP3 must be LOWER than TP2 (price going down), use min()
+        tp3    = round(min(tp3_sr, price - actual_risk * 3.0), 2)
 
     # Block signal if risk still exceeds hard cap (e.g. gap open)
     actual_risk = round(abs(entry - sl), 2)
@@ -1141,7 +1142,8 @@ def main():
         tp1    = round(price - actual_risk * 0.9,  2)
         tp2    = round(price - actual_risk * 1.8,  2)
         tp3_sr = sr.get("support", round(price - actual_risk * 3.0, 2))
-        tp3    = round(max(tp3_sr, price - actual_risk * 3.0), 2)
+        # For SELL: TP3 must be LOWER than TP2 (price going down), use min()
+        tp3    = round(min(tp3_sr, price - actual_risk * 3.0), 2)
 
     print("-" * 50)
     print(message)
