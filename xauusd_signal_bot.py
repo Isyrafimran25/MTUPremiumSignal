@@ -522,45 +522,45 @@ def generate_signal_message(signal_type: str, d: dict, confidence: str,
         z = sd["nearest_supply"]
         zone_note = f"Nearest supply zone sits at {z[0]}–{z[1]}."
 
-    prompt = f"""Anda adalah penganalisis isyarat skalpel XAUUSD profesional untuk saluran Telegram MTU Premium.
+    prompt = f"""You are a professional XAUUSD scalping signal analyst for MTU Premium Telegram channel.
 
-Tulis mesej isyarat menggunakan TEPAT templat ini. JANGAN ubah sebarang nombor yang saya berikan:
+Write a signal message using EXACTLY this template. Do NOT change any numbers I provide:
 
 {confidence_emoji} XAUUSD {signal_type} SCALP {direction_emoji}
 ━━━━━━━━━━━━━━━━━━━━━
-🕐 Sesi: {session}
-📊 Pasangan: XAUUSD (Emas/USD)
-⏱ Tempoh Masa: 15 Min Scalp
-💪 Keyakinan: {confidence} (Skor: {score}/8)
+🕐 Session: {session}
+📊 Pair: XAUUSD (Gold/USD)
+⏱ Timeframe: 15 Min Scalp
+💪 Confidence: {confidence} (Score: {score}/8)
 
-🎯 Harga Masuk:  {entry}
-🛑 Stop Loss:    {sl}  ({sl_sign}{sl_pips} pips)
+🎯 Entry:     {entry}
+🛑 Stop Loss: {sl}  ({sl_sign}{sl_pips} pips)
 
 ✅ TP1: {tp1}  ({tp_sign}{tp1_pips} pips)  → R:R 1:{rr1}
 ✅ TP2: {tp2}  ({tp_sign}{tp2_pips} pips)  → R:R 1:{rr2}
 ✅ TP3: {tp3}  ({tp_sign}{tp3_pips} pips)  → R:R 1:{rr3}
 
-📐 Risiko: {sl_pips} pips  |  R:R Terbaik: 1:{rr3}
+📐 Risk: {sl_pips} pips  |  Best R:R: 1:{rr3}
 ━━━━━━━━━━━━━━━━━━━━━
-🔍 Pengesahan:
+🔍 Confluences:
 {reasons_str}
 
-📝 Analisis:
-[Tulis TEPAT 3 ayat dalam Bahasa Melayu yang profesional:
- 1. Huraikan struktur pasaran dan apa yang ia isyaratkan untuk arah dagangan ini.
- 2. Terangkan konteks paras S&R atau zon S&D: {zone_note if zone_note else 'huraikan paras harga utama yang berperanan'}.
- 3. Rumuskan pengesahan momentum daripada RSI={d['rsi']:.1f}, penjajaran EMA, dan MACD.
- Gunakan bahasa yang tajam, profesional dan yakin. Tiada perkataan sia-sia.]
+📝 Analysis:
+[Write exactly 3 sharp sentences in English:
+ 1. Describe market structure and what it signals for this trade direction.
+ 2. Explain the S&R or S&D context: {zone_note if zone_note else 'describe the key price levels at play'}.
+ 3. Summarise the momentum confirmation from RSI={d['rsi']:.1f}, EMA alignment, and MACD.
+ Be sharp, professional and confident. No filler words.]
 
-💡 Pengurusan Dagangan:
-• Tutup 50% di TP1 — alih SL ke titik pulang modal
-• Pegang 50% untuk TP2/TP3
-• Keluar segera jika lilin tutup di luar SL
+💡 Trade Management:
+• Close 50% at TP1 — move SL to breakeven
+• Hold 50% for TP2/TP3
+• Exit immediately on candle close beyond SL
 
-⚠️ Bukan nasihat kewangan. Berdagang atas risiko sendiri.
-🔔 MTU Premium | Isyarat XAUUSD
+⚠️ Not financial advice. Trade at your own risk.
+🔔 MTU Premium | XAUUSD Signals
 
-Hasilkan HANYA mesej di atas. Tiada pengenalan atau teks tambahan."""
+Output ONLY the message. No preamble or extra text."""
 
     response = requests.post(
         "https://api.anthropic.com/v1/messages",
@@ -617,48 +617,48 @@ def generate_morning_update(d: dict) -> str:
     supply_str = (f"{sd['nearest_supply'][0]}–{sd['nearest_supply'][1]}"
                   if sd.get("nearest_supply") else "No nearby zone")
 
-    prompt = f"""Anda adalah penganalisis pasaran XAUUSD profesional untuk saluran Telegram MTU Premium.
+    prompt = f"""You are a professional XAUUSD market analyst for MTU Premium Telegram channel.
 
-Tulis kemaskini pasaran pagi harian menggunakan TEPAT format ini:
+Write a daily morning market update using EXACTLY this format:
 
-🌅 SELAMAT PAGI, PARA PEDAGANG!
+🌅 GOOD MORNING, TRADERS!
 📅 {date_str}
 ━━━━━━━━━━━━━━━━━━━━━
-🥇 PANDANGAN HARIAN XAUUSD
+🥇 XAUUSD DAILY OUTLOOK
 
-💰 Harga Semasa: {price}
-{direction} Perubahan: {sign}{change} ({sign}{change_pct}%)
+💰 Current Price: {price}
+{direction} Change: {sign}{change} ({sign}{change_pct}%)
 
-📊 Ringkasan Teknikal:
-• Struktur: {structure_label}
+📊 Technical Summary:
+• Structure: {structure_label}
 • RSI(14): {d['rsi']:.1f}
 • EMA9: {d['ema9']:.2f} | EMA21: {d['ema21']:.2f}
 • ATR(14): {d['atr']:.2f}
 
-🗺 Paras Utama Hari Ini:
-• Rintangan: {sr['resistance']}
-• Sokongan: {sr['support']}
-• Zon Penawaran: {supply_str}
-• Zon Permintaan: {demand_str}
+🗺 Key Levels Today:
+• Resistance: {sr['resistance']}
+• Support: {sr['support']}
+• Supply Zone: {supply_str}
+• Demand Zone: {demand_str}
 
 🧭 Bias: {structure_label}
 ━━━━━━━━━━━━━━━━━━━━━
-📝 Pandangan Hari Ini:
-[Tulis TEPAT 3 ayat dalam Bahasa Melayu yang profesional:
- 1. Komen tentang struktur pasaran semasa dan momentum.
- 2. Ketengahkan paras S&R dan zon S&D terpenting yang perlu dipantau pedagang.
- 3. Berikan bias yang jelas dan boleh diambil tindakan — beli pada penurunan, jual pada kenaikan, atau tunggu pengesahan pecahan.
- Gunakan bahasa yang tajam dan profesional.]
+📝 Today's Outlook:
+[Write exactly 3 sharp sentences in English:
+ 1. Comment on the current market structure and momentum.
+ 2. Highlight the most important S&R and S&D levels traders must watch today.
+ 3. Give a clear actionable bias — buy dips, sell rallies, or wait for breakout confirmation.
+ Keep it professional and concise.]
 
-🕐 Sesi Dagangan Hari Ini (MYT):
+🕐 Sessions Today (MYT):
 🌏 Asia: 08:00 – 16:00
 🇬🇧 London: 15:00 – 00:00
 🇺🇸 New York: 21:00 – 05:00
 
-⚠️ Bukan nasihat kewangan. Berdagang dengan bertanggungjawab.
-🔔 MTU Premium | Isyarat XAUUSD
+⚠️ Not financial advice. Trade responsibly.
+🔔 MTU Premium | XAUUSD Signals
 
-Hasilkan HANYA mesej di atas. Tiada pengenalan atau teks tambahan."""
+Output ONLY the message. No preamble or extra text."""
 
     response = requests.post(
         "https://api.anthropic.com/v1/messages",
@@ -864,56 +864,55 @@ def format_tracker_message(sig: dict, event: str, current_price: float) -> str:
 
     if event == "tp1_hit":
         emoji   = "✅"
-        title   = "TP1 DICAPAI!"
-        action  = "Tutup 50% posisi sekarang.\nAlih Stop Loss ke titik pulang modal (harga masuk)."
-        status  = f"Sasaran 1 dicapai pada {current_price:.2f}"
+        title   = "TP1 HIT!"
+        action  = "Close 50% of position now.\nMove Stop Loss to breakeven entry."
+        status  = f"Target 1 reached at {current_price:.2f}"
 
     elif event == "tp2_hit":
         emoji   = "✅✅"
-        title   = "TP2 DICAPAI!"
-        action  = "Tutup 50% posisi lagi.\nTrail SL bawah ayunan terakhir."
-        status  = f"Sasaran 2 dicapai pada {current_price:.2f}"
+        title   = "TP2 HIT!"
+        action  = "Close another 50% of position.\nTrail remaining SL below last swing."
+        status  = f"Target 2 reached at {current_price:.2f}"
 
     elif event == "tp3_hit":
         emoji   = "🎯"
-        title   = "TP3 DICAPAI — TUTUP PENUH!"
-        action  = "Tutup keseluruhan posisi. Isyarat selesai. Tahniah!"
-        status  = f"Sasaran penuh dicapai pada {current_price:.2f}"
+        title   = "TP3 HIT — FULL CLOSE!"
+        action  = "Close entire position. Signal complete. Well done!"
+        status  = f"Full target reached at {current_price:.2f}"
 
     elif event == "sl_hit":
         emoji   = "🛑"
-        title   = "STOP LOSS KENA!"
-        action  = "Isyarat ditutup. Potong kerugian, lindungi modal anda."
-        status  = f"SL dicetuskan pada {current_price:.2f}"
+        title   = "STOP LOSS HIT"
+        action  = "Signal closed. Cut losses, protect your capital."
+        status  = f"SL triggered at {current_price:.2f}"
 
     elif event == "running_profit":
         emoji   = "📊"
-        title   = "KEMASKINI LANGSUNG"
-        action  = f"Pertimbangkan tutup separa jika perlu."
-        status  = f"Untung Terapung: {pl_str} pips"
+        title   = "LIVE UPDATE"
+        action  = "Consider partial close if needed."
+        status  = f"Floating P&L: {pl_str} pips"
 
     else:
         return ""
 
     direction_emoji = "📈" if direction == "BUY" else "📉"
-    direction_label = "BELI" if direction == "BUY" else "JUAL"
 
     msg = (
-        f"{emoji} KEMASKINI ISYARAT — {direction_label} {direction_emoji}\n"
+        f"{emoji} SIGNAL UPDATE — {direction} {direction_emoji}\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"🆔 ID Isyarat: {signal_id}\n"
+        f"🆔 Signal ID: {signal_id}\n"
         f"📍 {title}\n"
-        f"💰 Harga Semasa: {current_price:.2f}\n"
-        f"🎯 Harga Masuk: {entry}\n"
+        f"💰 Current Price: {current_price:.2f}\n"
+        f"🎯 Entry: {entry}\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"📊 Paras:\n"
+        f"📊 Levels:\n"
         f"  SL: {sl}  |  TP1: {tp1}  |  TP2: {tp2}  |  TP3: {tp3}\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
         f"📈 Status: {status}\n"
-        f"💡 Tindakan: {action}\n"
+        f"💡 Action: {action}\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"⚠️ Bukan nasihat kewangan.\n"
-        f"🔔 MTU Premium | Isyarat XAUUSD"
+        f"⚠️ Not financial advice.\n"
+        f"🔔 MTU Premium | XAUUSD Signals"
     )
     return msg
 
