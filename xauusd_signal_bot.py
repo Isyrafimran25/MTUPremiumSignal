@@ -26,6 +26,7 @@ TELEGRAM_BOT_TOKEN  = os.environ["TELEGRAM_BOT_TOKEN"]
 TELEGRAM_CHANNEL_ID = os.environ["TELEGRAM_CHANNEL_ID"]
 ANTHROPIC_API_KEY   = os.environ["ANTHROPIC_API_KEY"]
 TWELVEDATA_API_KEY  = os.environ["TWELVEDATA_API_KEY"]
+NEWSAPI_KEY         = os.environ.get("NEWSAPI_KEY", "")  # Optional — get free at newsapi.org
 
 # ── Config ────────────────────────────────────────────────────────────────────
 MAX_SIGNALS_PER_DAY = 10
@@ -1252,6 +1253,175 @@ def main():
 
 import time
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  US SESSION FUNDAMENTAL NEWS UPDATE
+# ══════════════════════════════════════════════════════════════════════════════
+
+def fetch_gold_news() -> list:
+    """Fetch latest gold-related news from NewsAPI. Returns list of articles."""
+    if not NEWSAPI_KEY:
+        print("NEWSAPI_KEY not set — skipping news fetch.")
+        return []
+
+    queries = [
+        "gold XAU price",
+        "Federal Reserve interest rate",
+        "USD dollar strength",
+        "geopolitical gold safe haven",
+    ]
+
+    articles = []
+    for q in queries:
+        try:
+            r = requests.get(
+                "https://newsapi.org/v2/everything",
+                params={
+                    "q":          q,
+                    "language":   "en",
+                    "sortBy":     "publishedAt",
+                    "pageSize":   3,
+                    "apiKey":     NEWSAPI_KEY,
+                },
+                timeout=10,
+            )
+            r.raise_for_status()
+            data = r.json()
+            for a in data.get("articles", []):
+                if a.get("title") and a.get("description"):
+                    articles.append({
+                        "title":       a["title"],
+                        "description": a["description"],
+                        "source":      a.get("source", {}).get("name", "Unknown"),
+                        "url":         a.get("url", ""),
+                    })
+        except Exception as e:
+            print(f"News fetch error for '{q}': {e}")
+
+    # Deduplicate by title
+    seen  = set()
+    unique = []
+    for a in articles:
+        if a["title"] not in seen:
+            seen.add(a["title"])
+            unique.append(a)
+
+    return unique[:8]  # Max 8 articles
+
+
+def generate_fundamental_update(articles: list, price_data: dict) -> str:
+    """Use Claude AI to summarize news and give fundamental outlook for gold."""
+
+    price = price_data.get("price", "N/A")
+    rsi   = price_data.get("rsi",   "N/A")
+
+    # Build news context for Claude
+    news_context = ""
+    for i, a in enumerate(articles, 1):
+        news_context += f"{i}. [{a['source']}] {a['title']}\n   {a['description']}\n\n"
+
+    if not news_context:
+        news_context = "No live news available. Use your knowledge of current macro environment."
+
+    now_myt = datetime.now(timezone.utc)
+    date_str = now_myt.strftime("%A, %d %B %Y")
+
+    prompt = f"""You are a professional gold (XAUUSD) fundamental analyst for MTU Premium Telegram channel.
+
+Today is {date_str}. Current XAUUSD Price: {price} | RSI: {rsi}
+
+Here are the latest news headlines:
+{news_context}
+
+Write a US Session fundamental update using EXACTLY this format:
+
+🇺🇸 US SESSION FUNDAMENTAL UPDATE
+📅 {date_str}
+━━━━━━━━━━━━━━━━━━━━━
+💰 XAUUSD Current Price: {price}
+
+📰 KEY FUNDAMENTALS:
+
+💵 USD Strength/Weakness:
+[1-2 sentences about USD based on news above]
+
+🥇 Gold Demand/Supply:
+[1-2 sentences about gold demand, ETF flows, central bank buying]
+
+🏦 Fed & Interest Rates:
+[1-2 sentences about Fed policy, rate expectations]
+
+🌍 Geopolitical Factors:
+[1-2 sentences about geopolitical events affecting gold]
+━━━━━━━━━━━━━━━━━━━━━
+📊 FUNDAMENTAL BIAS FOR US SESSION:
+[ONE of these: 🟢 BULLISH | 🔴 BEARISH | 🟡 NEUTRAL]
+
+📝 Summary:
+[Write 2-3 sentences explaining the overall fundamental picture for gold during US session today. Be specific and actionable.]
+
+⚡ Key levels to watch: Support {round(float(price)-20, 2) if price != 'N/A' else 'N/A'} | Resistance {round(float(price)+20, 2) if price != 'N/A' else 'N/A'}
+
+⚠️ Not financial advice. Trade at your own risk.
+🔔 MTU Premium | XAUUSD Signals
+
+Output ONLY the message. No preamble or extra text."""
+
+    response = requests.post(
+        "https://api.anthropic.com/v1/messages",
+        headers={
+            "x-api-key":         ANTHROPIC_API_KEY,
+            "anthropic-version": "2023-06-01",
+            "content-type":      "application/json",
+        },
+        json={
+            "model":      "claude-sonnet-4-20250514",
+            "max_tokens": 800,
+            "messages":   [{"role": "user", "content": prompt}],
+        },
+        timeout=30,
+    )
+    response.raise_for_status()
+    return response.json()["content"][0]["text"].strip()
+
+
+def us_session_fundamental():
+    """Called once when US session starts — 13:00 UTC (9PM MYT)."""
+    now_utc = datetime.now(timezone.utc)
+    print(f"[{now_utc.strftime('%Y-%m-%d %H:%M')} UTC] US Session fundamental update running...")
+
+    # Fetch current price data
+    try:
+        price_data = fetch_market_data()
+    except Exception as e:
+        print(f"Price fetch failed: {e}")
+        price_data = {}
+
+    # Fetch news
+    print("Fetching gold news...")
+    articles = fetch_gold_news()
+    print(f"Found {len(articles)} articles")
+
+    # Generate AI summary
+    print("Generating fundamental update with Claude AI...")
+    try:
+        message = generate_fundamental_update(articles, price_data)
+    except Exception as e:
+        print(f"AI generation failed: {e}")
+        return
+
+    print("-" * 50)
+    print(message)
+    print("-" * 50)
+
+    try:
+        send_to_telegram(message)
+        print("US Session fundamental update sent!")
+    except Exception as e:
+        print(f"Telegram send failed: {e}")
+
+
+import time
+
 def run_loop():
     """
     Continuous loop for Railway/VPS hosting.
@@ -1259,18 +1429,25 @@ def run_loop():
     Sends morning update once per day at 00:00 UTC (08:00 MYT).
     """
     print("MTU Premium Signal Bot starting — Railway mode...")
-    morning_sent_date = None
+    morning_sent_date      = None
+    fundamental_sent_date  = None
 
     while True:
         try:
             now_utc = datetime.now(timezone.utc)
+            today   = now_utc.date()
 
-            # ── Morning update once per day at 00:00 UTC ──────────────────────
-            today = now_utc.date()
+            # ── Morning update once per day at 00:00 UTC (08:00 MYT) ─────────
             if now_utc.hour == 0 and now_utc.minute < 2 and morning_sent_date != today:
                 print("Sending morning update...")
                 morning_update()
                 morning_sent_date = today
+
+            # ── US Session fundamental update at 13:00 UTC (21:00 MYT) ───────
+            if now_utc.hour == 13 and now_utc.minute < 2 and fundamental_sent_date != today:
+                print("Sending US Session fundamental update...")
+                us_session_fundamental()
+                fundamental_sent_date = today
 
             # ── Signal check ──────────────────────────────────────────────────
             main()
