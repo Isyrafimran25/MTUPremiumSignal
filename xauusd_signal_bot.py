@@ -1,20 +1,10 @@
-“””
-XAUUSD AI Scalping Signal Bot – MTU Premium
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Strategy (score-based, fires at 4+ out of 8):
+# -*- coding: utf-8 -*-
 
-1. Market Structure  – HH+HL (bullish) or LL+LH (bearish)         +2
-1. S&R Levels        – Price near key support or resistance         +1
-1. S&D Zones         – Price inside supply or demand zone           +2
-1. Chart Patterns    – Double top/bottom, pin bar, inside bar       +1
-1. Engulfing Candle  – Bullish or bearish engulfing                 +1
-1. RSI               – Oversold (<40) or overbought (>60)           +1
-1. EMA               – EMA9 cross or alignment                      +1
-1. MACD              – Bullish or bearish crossover                 +1
+# XAUUSD AI Scalping Signal Bot – MTU Premium
 
-Scalping timeframe: 15-min candles
-Sessions: Asia (00-08 UTC), London (07-16 UTC), New York (13-21 UTC)
-“””
+# Strategy: S&R, S&D, Engulfing, Market Structure, RSI, EMA, MACD
+
+# Timeframe: 15-min | Sessions: Asia, London, New York
 
 import os
 import json
