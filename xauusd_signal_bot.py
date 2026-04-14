@@ -556,8 +556,11 @@ def generate_signal_message(signal_type: str, d: dict, confidence: str,
         # TP2 must be at least 2x risk (1:2 R:R minimum)
         tp1     = round(price + risk * 1.0, 2)   # 1:1
         tp2     = round(price + risk * 2.0, 2)   # 1:2 minimum
-        tp3_sr  = sr.get("resistance", round(price + risk * 3.0, 2))
-        tp3     = round(min(tp3_sr, price + risk * 3.0), 2)  # 1:3
+        # TP3 must ALWAYS be higher than TP2 for BUY
+        tp3_base = round(price + risk * 3.0, 2)
+        tp3_sr   = sr.get("resistance", tp3_base)
+        # Only use SR if it's above TP2, otherwise use ATR-based TP3
+        tp3      = round(tp3_sr if tp3_sr > tp2 else tp3_base, 2)
     else:
         entry   = price
         sl_sr   = round(sr.get("resistance", price + atr * 1.2) + atr * 0.3, 2)
@@ -569,8 +572,11 @@ def generate_signal_message(signal_type: str, d: dict, confidence: str,
         # TP2 must be at least 2x risk (1:2 R:R minimum)
         tp1     = round(price - risk * 1.0, 2)   # 1:1
         tp2     = round(price - risk * 2.0, 2)   # 1:2 minimum
-        tp3_sr  = sr.get("support", round(price - risk * 3.0, 2))
-        tp3     = round(min(tp3_sr, price - risk * 3.0), 2)  # 1:3
+        # TP3 must ALWAYS be lower than TP2 for SELL
+        tp3_base = round(price - risk * 3.0, 2)
+        tp3_sr   = sr.get("support", tp3_base)
+        # Only use SR if it's below TP2, otherwise use ATR-based TP3
+        tp3      = round(tp3_sr if tp3_sr < tp2 else tp3_base, 2)
 
     # Block signal if SL exceeds 50 pips hard cap
     actual_risk = round(abs(entry - sl), 2)
@@ -1215,22 +1221,24 @@ def main():
         sl_atr  = round(price - atr * 1.2, 2)
         sl_raw  = max(sl_sr, sl_atr)
         sl      = round(max(sl_raw, price - MAX_SL_PIPS), 2)
-        risk    = round(price - sl, 2)
-        tp1     = round(price + risk * 1.0, 2)
-        tp2     = round(price + risk * 2.0, 2)
-        tp3_sr  = sr.get("resistance", round(price + risk * 3.0, 2))
-        tp3     = round(min(tp3_sr, price + risk * 3.0), 2)
+        risk     = round(price - sl, 2)
+        tp1      = round(price + risk * 1.0, 2)
+        tp2      = round(price + risk * 2.0, 2)
+        tp3_base = round(price + risk * 3.0, 2)
+        tp3_sr   = sr.get("resistance", tp3_base)
+        tp3      = round(tp3_sr if tp3_sr > tp2 else tp3_base, 2)
     else:
         entry   = price
         sl_sr   = round(sr.get("resistance", price + atr * 1.2) + atr * 0.3, 2)
         sl_atr  = round(price + atr * 1.2, 2)
         sl_raw  = min(sl_sr, sl_atr)
         sl      = round(min(sl_raw, price + MAX_SL_PIPS), 2)
-        risk    = round(sl - price, 2)
-        tp1     = round(price - risk * 1.0, 2)
-        tp2     = round(price - risk * 2.0, 2)
-        tp3_sr  = sr.get("support", round(price - risk * 3.0, 2))
-        tp3     = round(min(tp3_sr, price - risk * 3.0), 2)
+        risk     = round(sl - price, 2)
+        tp1      = round(price - risk * 1.0, 2)
+        tp2      = round(price - risk * 2.0, 2)
+        tp3_base = round(price - risk * 3.0, 2)
+        tp3_sr   = sr.get("support", tp3_base)
+        tp3      = round(tp3_sr if tp3_sr < tp2 else tp3_base, 2)
 
     print("-" * 50)
     print(message)
