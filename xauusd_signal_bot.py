@@ -1,19 +1,19 @@
 “””
-XAUUSD AI Scalping Signal Bot — MTU Premium
+XAUUSD AI Scalping Signal Bot – MTU Premium
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Strategy (score-based, fires at 4+ out of 8):
 
-1. Market Structure  — HH+HL (bullish) or LL+LH (bearish)         +2
-1. S&R Levels        — Price near key support or resistance         +1
-1. S&D Zones         — Price inside supply or demand zone           +2
-1. Chart Patterns    — Double top/bottom, pin bar, inside bar       +1
-1. Engulfing Candle  — Bullish or bearish engulfing                 +1
-1. RSI               — Oversold (<40) or overbought (>60)           +1
-1. EMA               — EMA9 cross or alignment                      +1
-1. MACD              — Bullish or bearish crossover                 +1
+1. Market Structure  – HH+HL (bullish) or LL+LH (bearish)         +2
+1. S&R Levels        – Price near key support or resistance         +1
+1. S&D Zones         – Price inside supply or demand zone           +2
+1. Chart Patterns    – Double top/bottom, pin bar, inside bar       +1
+1. Engulfing Candle  – Bullish or bearish engulfing                 +1
+1. RSI               – Oversold (<40) or overbought (>60)           +1
+1. EMA               – EMA9 cross or alignment                      +1
+1. MACD              – Bullish or bearish crossover                 +1
 
 Scalping timeframe: 15-min candles
-Sessions: Asia (00–08 UTC), London (07–16 UTC), New York (13–21 UTC)
+Sessions: Asia (00-08 UTC), London (07-16 UTC), New York (13-21 UTC)
 “””
 
 import os
@@ -28,7 +28,7 @@ TELEGRAM_BOT_TOKEN  = os.environ[“TELEGRAM_BOT_TOKEN”]
 TELEGRAM_CHANNEL_ID = os.environ[“TELEGRAM_CHANNEL_ID”]
 ANTHROPIC_API_KEY   = os.environ[“ANTHROPIC_API_KEY”]
 TWELVEDATA_API_KEY  = os.environ[“TWELVEDATA_API_KEY”]
-NEWSAPI_KEY         = os.environ.get(“NEWSAPI_KEY”, “”)  # Optional — get free at newsapi.org
+NEWSAPI_KEY         = os.environ.get(“NEWSAPI_KEY”, “”)  # Optional – get free at newsapi.org
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
@@ -47,7 +47,7 @@ import pathlib as _pathlib
 _DATA_DIR         = _pathlib.Path(”/data”) if _pathlib.Path(”/data”).exists() else _pathlib.Path(”.”)
 SIGNAL_COUNT_FILE = str(_DATA_DIR / “signal_count.json”)
 OPEN_SIGNALS_FILE = str(_DATA_DIR / “open_signals.json”)
-print(f”Storage directory: {_DATA_DIR} ({‘persistent’ if str(_DATA_DIR) == ‘/data’ else ‘non-persistent — add Railway Volume!’})”)
+print(f”Storage directory: {_DATA_DIR} ({‘persistent’ if str(_DATA_DIR) == ‘/data’ else ‘non-persistent – add Railway Volume!’})”)
 
 # ── Session helpers ───────────────────────────────────────────────────────────
 
@@ -59,11 +59,11 @@ SESSIONS = {
 
 # ── Active trading hours (MYT) ────────────────────────────────────────────────
 
-# Bot active: 7:00 AM – 2:00 AM MYT
+# Bot active: 7:00 AM - 2:00 AM MYT
 
-# In UTC:     23:00 – 18:00 (wraps midnight)
+# In UTC:     23:00 - 18:00 (wraps midnight)
 
-# Off hours:  2:00 AM – 7:00 AM MYT = 18:00 – 23:00 UTC
+# Off hours:  2:00 AM - 7:00 AM MYT = 18:00 - 23:00 UTC
 
 def is_active_hours(utc_hour: int) -> bool:
 “”“Returns True if within active trading hours (7AM-2AM MYT).”””
@@ -178,7 +178,7 @@ return result  # oldest first
 ```
 
 def compute_macd(closes: list, fast=12, slow=26, signal=9):
-“”“Returns (macd_line, signal_line) lists — oldest first.”””
+“”“Returns (macd_line, signal_line) lists – oldest first.”””
 ema_fast   = compute_ema(closes, fast)
 ema_slow   = compute_ema(closes, slow)
 macd_line  = [f - s for f, s in zip(ema_fast, ema_slow)]
@@ -186,12 +186,12 @@ signal_line = compute_ema(macd_line, signal)
 return macd_line, signal_line
 
 def fetch_market_data() -> dict:
-“”“Single API call — compute all indicators locally. Saves 5 credits per run.”””
+“”“Single API call – compute all indicators locally. Saves 5 credits per run.”””
 print(”  -> time_series (1 API call only)”)
 price_data = td_get(“time_series”, outputsize=60)
 
 ```
-# Build candles list — newest first (as returned by API)
+# Build candles list -- newest first (as returned by API)
 candles = []
 for v in price_data["values"]:
     candles.append({
@@ -486,7 +486,7 @@ if cp["double_bottom"]:
 
 if rsi < 40:
     buy_score += 1
-    buy_reasons.append(f"RSI {rsi:.1f} — oversold")
+    buy_reasons.append(f"RSI {rsi:.1f} -- oversold")
     buy_data["rsi"] = rsi
 
 if ema_cross_up or ema_bull:
@@ -533,7 +533,7 @@ if cp["double_top"]:
 
 if rsi > 60:
     sell_score += 1
-    sell_reasons.append(f"RSI {rsi:.1f} — overbought")
+    sell_reasons.append(f"RSI {rsi:.1f} -- overbought")
     sell_data["rsi"] = rsi
 
 if ema_cross_down or ema_bear:
@@ -575,7 +575,7 @@ sd    = analysis.get(“sd”, {})
 
 ```
 # ── Risk & R:R rules ──────────────────────────────────────────────────────
-MAX_SL_PIPS = 50     # hard cap — SL max 50 pips from entry
+MAX_SL_PIPS = 50     # hard cap -- SL max 50 pips from entry
 MIN_RR      = 2.0    # minimum R:R 1:2 (TP2 must be 2x the risk)
 
 if signal_type == "BUY":
@@ -614,13 +614,13 @@ else:
 # Block signal if SL exceeds 50 pips hard cap
 actual_risk = round(abs(entry - sl), 2)
 if actual_risk > MAX_SL_PIPS:
-    print(f"Signal blocked — SL {actual_risk} pips exceeds {MAX_SL_PIPS} pip hard cap.")
+    print(f"Signal blocked -- SL {actual_risk} pips exceeds {MAX_SL_PIPS} pip hard cap.")
     return None
 
 # Block signal if R:R at TP2 is less than 1:2
 tp2_rr = round(abs(tp2 - entry) / actual_risk, 2) if actual_risk > 0 else 0
 if tp2_rr < MIN_RR:
-    print(f"Signal blocked — R:R {tp2_rr} at TP2 is below minimum 1:{MIN_RR}.")
+    print(f"Signal blocked -- R:R {tp2_rr} at TP2 is below minimum 1:{MIN_RR}.")
     return None
 
 risk = actual_risk
@@ -640,15 +640,15 @@ reasons_str      = "\n".join(f"  • {r}" for r in reasons[:6])
 
 zone_note = ""
 if signal_type == "BUY" and sd.get("in_demand"):
-    zone_note = "Price is currently inside a demand zone — high-probability long area."
+    zone_note = "Price is currently inside a demand zone -- high-probability long area."
 elif signal_type == "SELL" and sd.get("in_supply"):
-    zone_note = "Price is currently inside a supply zone — high-probability short area."
+    zone_note = "Price is currently inside a supply zone -- high-probability short area."
 elif signal_type == "BUY" and sd.get("nearest_demand"):
     z = sd["nearest_demand"]
-    zone_note = f"Nearest demand zone sits at {z[0]}–{z[1]}."
+    zone_note = f"Nearest demand zone sits at {z[0]}-{z[1]}."
 elif signal_type == "SELL" and sd.get("nearest_supply"):
     z = sd["nearest_supply"]
-    zone_note = f"Nearest supply zone sits at {z[0]}–{z[1]}."
+    zone_note = f"Nearest supply zone sits at {z[0]}-{z[1]}."
 
 prompt = f"""You are a professional XAUUSD scalping signal analyst for MTU Premium Telegram channel.
 ```
@@ -683,7 +683,7 @@ Write a signal message using EXACTLY this template. Do NOT change any numbers I 
    Be sharp, professional and confident. No filler words.]
 
 💡 Trade Management:
-• Close 50% at TP1 — move SL to breakeven
+• Close 50% at TP1 – move SL to breakeven
 • Hold 50% for TP2/TP3
 • Exit immediately on candle close beyond SL
 
@@ -743,9 +743,9 @@ structure_label = {"bullish": "Bullish (Menaik) ⬆️",
                    "bearish": "Bearish (Menurun) ⬇️",
                    "ranging": "Ranging (Mendatar) ↔️"}.get(structure, "Ranging ↔️")
 
-demand_str = (f"{sd['nearest_demand'][0]}–{sd['nearest_demand'][1]}"
+demand_str = (f"{sd['nearest_demand'][0]}-{sd['nearest_demand'][1]}"
               if sd.get("nearest_demand") else "No nearby zone")
-supply_str = (f"{sd['nearest_supply'][0]}–{sd['nearest_supply'][1]}"
+supply_str = (f"{sd['nearest_supply'][0]}-{sd['nearest_supply'][1]}"
               if sd.get("nearest_supply") else "No nearby zone")
 
 prompt = f"""You are a professional XAUUSD market analyst for MTU Premium Telegram channel.
@@ -780,13 +780,13 @@ Write a daily morning market update using EXACTLY this format:
 
 1. Comment on the current market structure and momentum.
 1. Highlight the most important S&R and S&D levels traders must watch today.
-1. Give a clear actionable bias — buy dips, sell rallies, or wait for breakout confirmation.
+1. Give a clear actionable bias – buy dips, sell rallies, or wait for breakout confirmation.
    Keep it professional and concise.]
 
 🕐 Sessions Today (MYT):
-🌏 Asia: 08:00 – 16:00
-🇬🇧 London: 15:00 – 00:00
-🇺🇸 New York: 21:00 – 05:00
+🌏 Asia: 08:00 - 16:00
+🇬🇧 London: 15:00 - 00:00
+🇺🇸 New York: 21:00 - 05:00
 
 ⚠️ Not financial advice. Trade responsibly.
 🔔 MTU Premium | XAUUSD Signals
@@ -852,7 +852,7 @@ if state["count"] >= MAX_SIGNALS_PER_DAY:
     print(f"Had harian dicapai ({MAX_SIGNALS_PER_DAY}). Selesai untuk hari ini.")
     return
 if not cooldown_ok(state):
-    print(f"Cooldown aktif — {COOLDOWN_MINUTES} minit antara isyarat.")
+    print(f"Cooldown aktif -- {COOLDOWN_MINUTES} minit antara isyarat.")
     return
 
 print("Mengambil data XAUUSD 15-min dari Twelve Data...")
@@ -909,7 +909,7 @@ except Exception as e:
 
 # ══════════════════════════════════════════════════════════════════════════════
 
-# SIGNAL TRACKER — monitors open signals and posts live updates
+# SIGNAL TRACKER – monitors open signals and posts live updates
 
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -1014,7 +1014,7 @@ elif event == "tp2_hit":
 
 elif event == "tp3_hit":
     emoji   = "🎯"
-    title   = "TP3 HIT — FULL CLOSE!"
+    title   = "TP3 HIT -- FULL CLOSE!"
     action  = "Close entire position. Signal complete. Well done!"
     status  = f"Full target reached at {current_price:.2f}"
 
@@ -1036,7 +1036,7 @@ else:
 direction_emoji = "📈" if direction == "BUY" else "📉"
 
 msg = (
-    f"{emoji} SIGNAL UPDATE — {direction} {direction_emoji}\n"
+    f"{emoji} SIGNAL UPDATE -- {direction} {direction_emoji}\n"
     f"━━━━━━━━━━━━━━━━━━━━━\n"
     f"🆔 Signal ID: {signal_id}\n"
     f"📍 {title}\n"
@@ -1161,7 +1161,7 @@ for sig in signals:
         sig["tp1_hit"] = True
         sig["status"]  = "tp1_hit"
         updated = True
-        # Don't continue — also check running profit below
+        # Don't continue -- also check running profit below
 
     # ── Running profit update ─────────────────────────────────────────────
     if direction == "BUY":
@@ -1190,7 +1190,7 @@ else:
     print("Tiada kemaskini isyarat dicetuskan.")
 ```
 
-# ── Updated main — now also saves signal for tracking ─────────────────────────
+# ── Updated main – now also saves signal for tracking ─────────────────────────
 
 def main():
 now_utc  = datetime.now(timezone.utc)
@@ -1215,7 +1215,7 @@ if state["count"] >= MAX_SIGNALS_PER_DAY:
     print(f"Had harian dicapai ({MAX_SIGNALS_PER_DAY}). Selesai untuk hari ini.")
     return
 if not cooldown_ok(state):
-    print(f"Cooldown aktif — {COOLDOWN_MINUTES} minit antara isyarat.")
+    print(f"Cooldown aktif -- {COOLDOWN_MINUTES} minit antara isyarat.")
     return
 
 print("Mengambil data XAUUSD 15-min dari Twelve Data...")
@@ -1315,7 +1315,7 @@ import time
 def fetch_gold_news() -> list:
 “”“Fetch latest gold-related news from NewsAPI. Returns list of articles.”””
 if not NEWSAPI_KEY:
-print(“NEWSAPI_KEY not set — skipping news fetch.”)
+print(“NEWSAPI_KEY not set – skipping news fetch.”)
 return []
 
 ```
@@ -1444,7 +1444,7 @@ return response.json()["content"][0]["text"].strip()
 ```
 
 def us_session_fundamental():
-“”“Called once when US session starts — 13:00 UTC (9PM MYT).”””
+“”“Called once when US session starts – 13:00 UTC (9PM MYT).”””
 now_utc = datetime.now(timezone.utc)
 print(f”[{now_utc.strftime(’%Y-%m-%d %H:%M’)} UTC] US Session fundamental update running…”)
 
@@ -1488,7 +1488,7 @@ Continuous loop for Railway/VPS hosting.
 Checks signal every 60 seconds.
 Sends morning update once per day at 00:00 UTC (08:00 MYT).
 “””
-print(“MTU Premium Signal Bot starting — Railway mode…”)
+print(“MTU Premium Signal Bot starting – Railway mode…”)
 morning_sent_date      = None
 fundamental_sent_date  = None
 
