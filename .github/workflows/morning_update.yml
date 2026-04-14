@@ -1,0 +1,34 @@
+name: XAUUSD Morning Update
+
+on:
+  schedule:
+    # 00:00 UTC = 08:00 MYT (Malaysia Time, UTC+8)
+    # Runs Mon–Fri only
+    - cron: "0 0 * * 1-5"
+
+  # Allow manual trigger for testing
+  workflow_dispatch:
+
+jobs:
+  morning-update:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Send morning market update
+        env:
+          TELEGRAM_BOT_TOKEN:  ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+          ANTHROPIC_API_KEY:   ${{ secrets.ANTHROPIC_API_KEY }}
+          TWELVEDATA_API_KEY:  ${{ secrets.TWELVEDATA_API_KEY }}
+        run: python xauusd_signal_bot.py morning
