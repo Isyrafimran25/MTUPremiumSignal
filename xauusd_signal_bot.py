@@ -1594,6 +1594,144 @@ def us_session_fundamental():
         print(f"Telegram send failed: {e}")
 
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  DAILY PERFORMANCE TRACKER
+# ══════════════════════════════════════════════════════════════════════════════
+
+def generate_daily_report() -> str:
+    """
+    Reads all closed signals from today and generates a performance summary.
+    Called at 2AM MYT (18:00 UTC) when bot goes to sleep.
+    """
+    signals = load_open_signals()
+    today   = str(date.today())
+
+    # Filter todays signals only
+    todays = [s for s in signals if s.get("opened_utc", "")[:10] == today]
+
+    if not todays:
+        return ""
+
+    total    = len(todays)
+    wins     = 0
+    losses   = 0
+    win_pips = 0.0
+    loss_pips= 0.0
+    open_signals = 0
+
+    signal_lines = ""
+
+    for s in todays:
+        direction = s["type"]
+        entry     = s["entry"]
+        sl        = s["sl"]
+        tp1       = s["tp1"]
+        tp2       = s["tp2"]
+        tp3       = s["tp3"]
+        status    = s.get("status", "open")
+
+        if status == "closed":
+            # TP3 hit
+            if direction == "BUY":
+                pips = round(tp3 - entry, 2)
+            else:
+                pips = round(entry - tp3, 2)
+            wins += 1
+            win_pips += pips
+            result = f"WIN +{pips} pips (TP3)"
+            emoji  = "✅"
+
+        elif status == "tp2_hit":
+            if direction == "BUY":
+                pips = round(tp2 - entry, 2)
+            else:
+                pips = round(entry - tp2, 2)
+            wins += 1
+            win_pips += pips
+            result = f"WIN +{pips} pips (TP2)"
+            emoji  = "✅"
+
+        elif status == "tp1_hit":
+            if direction == "BUY":
+                pips = round(tp1 - entry, 2)
+            else:
+                pips = round(entry - tp1, 2)
+            wins += 1
+            win_pips += pips
+            result = f"WIN +{pips} pips (TP1)"
+            emoji  = "✅"
+
+        elif status == "sl_hit":
+            if direction == "BUY":
+                pips = round(entry - sl, 2)
+            else:
+                pips = round(sl - entry, 2)
+            losses += 1
+            loss_pips += pips
+            result = f"LOSS -{pips} pips (SL)"
+            emoji  = "❌"
+
+        else:
+            open_signals += 1
+            result = "Still open..."
+            emoji  = "⏳"
+
+        signal_lines += f"{emoji} {direction} | Entry: {entry} | {result}\n"
+
+    # Calculate stats
+    win_rate  = round((wins / (wins + losses) * 100), 1) if (wins + losses) > 0 else 0
+    net_pips  = round(win_pips - loss_pips, 2)
+    net_emoji = "+" if net_pips >= 0 else ""
+
+    now_utc  = datetime.now(timezone.utc)
+    date_str = now_utc.strftime("%A, %d %B %Y")
+
+    # Performance emoji
+    if win_rate >= 70:
+        perf_emoji = "🔥 Excellent"
+    elif win_rate >= 50:
+        perf_emoji = "✅ Good"
+    elif win_rate >= 30:
+        perf_emoji = "⚠️ Average"
+    else:
+        perf_emoji = "❌ Poor"
+
+    sep = "-------------------"
+    msg  = "DAILY SIGNAL PERFORMANCE REPORT\n"
+    msg += "Date: " + date_str + "\n"
+    msg += sep + "\n"
+    msg += "Total Signals: " + str(total) + "\n"
+    msg += "Wins: " + str(wins) + "\n"
+    msg += "Losses: " + str(losses) + "\n"
+    msg += "Still Open: " + str(open_signals) + "\n"
+    msg += sep + "\n"
+    msg += "Win Rate: " + str(win_rate) + "% " + perf_emoji + "\n"
+    msg += "Win Pips: +" + str(round(win_pips, 2)) + "\n"
+    msg += "Loss Pips: -" + str(round(loss_pips, 2)) + "\n"
+    msg += "Net Pips: " + net_emoji + str(net_pips) + "\n"
+    msg += sep + "\n"
+    msg += "Signal Breakdown:\n"
+    msg += signal_lines
+    msg += sep + "\n"
+    msg += "See you tomorrow! Trade safe.\n"
+    msg += "MTU Premium | XAUUSD Signals"
+    return msg
+
+
+def send_daily_report():
+    """Called at 2AM MYT (18:00 UTC) -- end of trading day."""
+    print("Generating daily performance report...")
+    try:
+        msg = generate_daily_report()
+        if not msg:
+            print("No signals today -- skipping daily report.")
+            return
+        send_to_telegram(msg)
+        print("Daily report sent!")
+    except Exception as e:
+        print(f"Daily report failed: {e}")
+
 import time
 
 def run_loop():
@@ -1605,6 +1743,7 @@ def run_loop():
     print("MTU Premium Signal Bot starting -- Railway mode...")
     morning_sent_date      = None
     fundamental_sent_date  = None
+    daily_report_sent_date = None
 
     while True:
         try:
@@ -1622,6 +1761,12 @@ def run_loop():
                 print("Sending US Session fundamental update...")
                 us_session_fundamental()
                 fundamental_sent_date = today
+
+            # -- Daily report at 18:00 UTC (2AM MYT) -- end of trading day --
+            if now_utc.hour == 18 and now_utc.minute < 2 and daily_report_sent_date != today:
+                print("Sending daily performance report...")
+                send_daily_report()
+                daily_report_sent_date = today
 
             # ── Signal check ──────────────────────────────────────────────────
             main()
