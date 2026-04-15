@@ -415,7 +415,7 @@ def check_conditions(d: dict) -> tuple:
     avg_atr = d["avg_atr"]
 
     # Volatility gate
-    if atr < avg_atr * 0.75:
+    if atr < avg_atr * 1.0:  # ATR must be AT LEAST average -- no ranging market signals
         return None, None, None, 0, {}
 
     structure = detect_market_structure(candles)
@@ -430,7 +430,11 @@ def check_conditions(d: dict) -> tuple:
     macd_bull      = d["macd_prev"] < d["macd_sig_prev"] and d["macd"] > d["macd_signal"]
     macd_bear      = d["macd_prev"] > d["macd_sig_prev"] and d["macd"] < d["macd_signal"]
 
-    # ── BUY score ─────────────────────────────────────────────────────────────
+    # Block signal completely if market is ranging -- most SL hits happen here
+    if structure == "ranging":
+        return None, None, None, 0, {}
+
+    # -- BUY score ─────────────────────────────────────────────────────────────
     buy_score   = 0
     buy_reasons = []
     buy_data    = {}
@@ -461,7 +465,7 @@ def check_conditions(d: dict) -> tuple:
         buy_reasons.append("Double Bottom pattern confirmed")
         buy_data["double_bottom"] = True
 
-    if rsi < 40:
+    if rsi < 35:  # Tightened from 40
         buy_score += 1
         buy_reasons.append(f"RSI {rsi:.1f} -- oversold")
         buy_data["rsi"] = rsi
@@ -508,7 +512,7 @@ def check_conditions(d: dict) -> tuple:
         sell_reasons.append("Double Top pattern confirmed")
         sell_data["double_top"] = True
 
-    if rsi > 60:
+    if rsi > 65:  # Tightened from 60
         sell_score += 1
         sell_reasons.append(f"RSI {rsi:.1f} -- overbought")
         sell_data["rsi"] = rsi
@@ -525,15 +529,15 @@ def check_conditions(d: dict) -> tuple:
         sell_data["macd"] = "bearish"
 
     # ── Pick winner ───────────────────────────────────────────────────────────
-    MIN_SCORE = 4
+    MIN_SCORE = 5  # Raised from 4 -- reduces weak signals
 
     if buy_score >= sell_score and buy_score >= MIN_SCORE:
-        confidence = "HIGH" if buy_score >= 6 else "MEDIUM"
+        confidence = "HIGH" if buy_score >= 7 else "MEDIUM"
         analysis   = {**buy_data, "sr": sr, "sd": sd, "score": buy_score}
         return "BUY", buy_reasons, confidence, buy_score, analysis
 
     if sell_score > buy_score and sell_score >= MIN_SCORE:
-        confidence = "HIGH" if sell_score >= 6 else "MEDIUM"
+        confidence = "HIGH" if sell_score >= 7 else "MEDIUM"
         analysis   = {**sell_data, "sr": sr, "sd": sd, "score": sell_score}
         return "SELL", sell_reasons, confidence, sell_score, analysis
 
@@ -1208,6 +1212,12 @@ def main():
           f"InDemand={sd['in_demand']}  InSupply={sd['in_supply']}  "
           f"Patterns={cp['patterns']}")
 
+    # -- News blackout check -- block signal during high impact news
+    news_blocked, news_reason = is_news_blackout(now_utc)
+    if news_blocked:
+        print(f"NEWS BLACKOUT: {news_reason} -- skipping signal for safety.")
+        return
+
     signal_type, reasons, confidence, score, analysis = check_conditions(data)
 
     if not signal_type:
@@ -1273,6 +1283,149 @@ def main():
 # ── Entry point ────────────────────────────────────────────────────────────────
 
 import time
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  HIGH IMPACT NEWS BLACKOUT FILTER
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Fixed weekly/monthly high impact US news schedule (UTC times)
+# Bot will block signals 15 min before and 20 min after these events
+HIGH_IMPACT_NEWS = [
+    # Weekly recurring
+    {"name": "Initial Jobless Claims",  "day": 3, "hour": 12, "min": 30},  # Thursday 12:30 UTC
+    {"name": "Crude Oil Inventories",   "day": 2, "hour": 14, "min": 30},  # Wednesday 14:30 UTC
+
+    # Monthly recurring (approximate -- varies by month)
+    {"name": "Non-Farm Payrolls (NFP)", "day": 4, "hour": 12, "min": 30},  # First Friday 12:30 UTC
+    {"name": "CPI",                     "day": 1, "hour": 12, "min": 30},  # Usually Tuesday/Wednesday
+    {"name": "PPI",                     "day": 2, "hour": 12, "min": 30},  # Usually Wednesday
+    {"name": "Retail Sales",            "day": 2, "hour": 12, "min": 30},  # Usually Wednesday
+    {"name": "FOMC Statement",          "day": 2, "hour": 18, "min": 0},   # Wednesday 18:00 UTC
+    {"name": "FOMC Press Conference",   "day": 2, "hour": 18, "min": 30},  # Wednesday 18:30 UTC
+    {"name": "GDP",                     "day": 2, "hour": 12, "min": 30},  # Usually Wednesday
+    {"name": "PCE Price Index",         "day": 4, "hour": 12, "min": 30},  # Usually Friday
+    {"name": "ISM Manufacturing",       "day": 0, "hour": 14, "min": 0},   # First Monday 14:00 UTC
+    {"name": "ISM Services",            "day": 2, "hour": 14, "min": 0},   # First Wednesday
+    {"name": "Fed Chair Speech",        "day": -1, "hour": -1, "min": -1}, # Ad-hoc -- skip
+]
+
+# FOMC dates 2025-2026 (exact dates, UTC)
+FOMC_DATES = [
+    (2025, 1, 29), (2025, 3, 19), (2025, 5, 7),
+    (2025, 6, 18), (2025, 7, 30), (2025, 9, 17),
+    (2025, 10, 29),(2025, 12, 10),
+    (2026, 1, 28), (2026, 3, 18), (2026, 4, 29),
+    (2026, 6, 17), (2026, 7, 29), (2026, 9, 16),
+    (2026, 10, 28),(2026, 12, 9),
+]
+
+# NFP is always first Friday of month at 12:30 UTC
+# CPI is usually 2nd or 3rd week -- we check via NewsAPI
+
+BLACKOUT_BEFORE_MIN = 15   # block 15 min before news
+BLACKOUT_AFTER_MIN  = 20   # block 20 min after news
+
+
+def is_fomc_blackout(now_utc: datetime) -> tuple:
+    """Check if current time is within FOMC blackout window."""
+    today = (now_utc.year, now_utc.month, now_utc.day)
+    for y, m, d in FOMC_DATES:
+        if (y, m, d) == today:
+            # FOMC announcement at 18:00 UTC, press conference 18:30 UTC
+            # Blackout: 17:45 UTC to 19:30 UTC
+            fomc_start = now_utc.replace(hour=17, minute=45, second=0, microsecond=0)
+            fomc_end   = now_utc.replace(hour=19, minute=30, second=0, microsecond=0)
+            if fomc_start <= now_utc <= fomc_end:
+                return True, "FOMC Statement/Press Conference"
+    return False, ""
+
+
+def is_nfp_blackout(now_utc: datetime) -> tuple:
+    """Check if today is NFP day (first Friday of month) and within blackout."""
+    if now_utc.weekday() != 4:  # Not Friday
+        return False, ""
+    # Check if first Friday of month
+    if now_utc.day > 7:
+        return False, ""
+    # NFP at 12:30 UTC -- blackout 12:15 to 12:50
+    nfp_start = now_utc.replace(hour=12, minute=15, second=0, microsecond=0)
+    nfp_end   = now_utc.replace(hour=12, minute=50, second=0, microsecond=0)
+    if nfp_start <= now_utc <= nfp_end:
+        return True, "Non-Farm Payrolls (NFP)"
+    return False, ""
+
+
+def check_newsapi_breaking_news(now_utc: datetime) -> tuple:
+    """Check NewsAPI for breaking high-impact news in last 30 min."""
+    if not NEWSAPI_KEY:
+        return False, ""
+
+    keywords = [
+        "Federal Reserve rate decision",
+        "CPI inflation data",
+        "PPI producer price",
+        "FOMC meeting",
+        "Fed Powell speech",
+        "US GDP data",
+        "NFP jobs report",
+        "PCE inflation",
+        "ISM manufacturing",
+    ]
+
+    try:
+        from datetime import timedelta
+        since = (now_utc - timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        for keyword in keywords[:3]:  # Check top 3 to save API calls
+            r = requests.get(
+                "https://newsapi.org/v2/everything",
+                params={
+                    "q":        keyword,
+                    "from":     since,
+                    "sortBy":   "publishedAt",
+                    "pageSize": 1,
+                    "apiKey":   NEWSAPI_KEY,
+                },
+                timeout=8,
+            )
+            data = r.json()
+            if data.get("totalResults", 0) > 0:
+                return True, keyword
+    except Exception as e:
+        print(f"NewsAPI check failed: {e}")
+
+    return False, ""
+
+
+def is_news_blackout(now_utc: datetime) -> tuple:
+    """
+    Master check -- returns (is_blackout, reason).
+    Checks FOMC dates, NFP, and breaking news.
+    """
+    # Check FOMC
+    blocked, reason = is_fomc_blackout(now_utc)
+    if blocked:
+        return True, reason
+
+    # Check NFP
+    blocked, reason = is_nfp_blackout(now_utc)
+    if blocked:
+        return True, reason
+
+    # Check JoblessClaims (Thursday 12:30 UTC)
+    if now_utc.weekday() == 3:  # Thursday
+        claims_start = now_utc.replace(hour=12, minute=15, second=0, microsecond=0)
+        claims_end   = now_utc.replace(hour=12, minute=50, second=0, microsecond=0)
+        if claims_start <= now_utc <= claims_end:
+            return True, "Initial Jobless Claims"
+
+    # Check NewsAPI for breaking news (only during US session)
+    if 12 <= now_utc.hour <= 16:
+        blocked, reason = check_newsapi_breaking_news(now_utc)
+        if blocked:
+            return True, f"Breaking news: {reason}"
+
+    return False, ""
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  US SESSION FUNDAMENTAL NEWS UPDATE
