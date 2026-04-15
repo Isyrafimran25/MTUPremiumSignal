@@ -415,7 +415,7 @@ def check_conditions(d: dict) -> tuple:
     avg_atr = d["avg_atr"]
 
     # Volatility gate
-    if atr < avg_atr * 1.0:  # ATR must be AT LEAST average -- no ranging market signals
+    if atr < avg_atr * 0.85:  # Allow slight below-average volatility
         return None, None, None, 0, {}
 
     structure = detect_market_structure(candles)
@@ -430,8 +430,8 @@ def check_conditions(d: dict) -> tuple:
     macd_bull      = d["macd_prev"] < d["macd_sig_prev"] and d["macd"] > d["macd_signal"]
     macd_bear      = d["macd_prev"] > d["macd_sig_prev"] and d["macd"] < d["macd_signal"]
 
-    # Block signal completely if market is ranging -- most SL hits happen here
-    if structure == "ranging":
+    # If ranging, only allow signal if near strong S&R or inside S&D zone
+    if structure == "ranging" and not (sr.get("near_support") or sr.get("near_resistance") or sd.get("in_demand") or sd.get("in_supply")):
         return None, None, None, 0, {}
 
     # -- BUY score ─────────────────────────────────────────────────────────────
@@ -465,7 +465,7 @@ def check_conditions(d: dict) -> tuple:
         buy_reasons.append("Double Bottom pattern confirmed")
         buy_data["double_bottom"] = True
 
-    if rsi < 35:  # Tightened from 40
+    if rsi < 38:  # Balanced -- was 35 (too tight) or 40 (too loose)
         buy_score += 1
         buy_reasons.append(f"RSI {rsi:.1f} -- oversold")
         buy_data["rsi"] = rsi
@@ -512,7 +512,7 @@ def check_conditions(d: dict) -> tuple:
         sell_reasons.append("Double Top pattern confirmed")
         sell_data["double_top"] = True
 
-    if rsi > 65:  # Tightened from 60
+    if rsi > 62:  # Balanced -- was 65 (too tight) or 60 (too loose)
         sell_score += 1
         sell_reasons.append(f"RSI {rsi:.1f} -- overbought")
         sell_data["rsi"] = rsi
@@ -529,7 +529,7 @@ def check_conditions(d: dict) -> tuple:
         sell_data["macd"] = "bearish"
 
     # ── Pick winner ───────────────────────────────────────────────────────────
-    MIN_SCORE = 5  # Raised from 4 -- reduces weak signals
+    MIN_SCORE = 4  # Balanced -- quality + frequency
 
     if buy_score >= sell_score and buy_score >= MIN_SCORE:
         confidence = "HIGH" if buy_score >= 7 else "MEDIUM"
