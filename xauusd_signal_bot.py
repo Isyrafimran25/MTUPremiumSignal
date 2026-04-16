@@ -1608,7 +1608,16 @@ def generate_daily_report() -> str:
     today   = str(date.today())
 
     # Filter todays signals only
-    todays = [s for s in signals if s.get("opened_utc", "")[:10] == today]
+    # Use MYT date (UTC+8) for filtering -- trading day 7AM-2AM MYT
+    from datetime import timedelta
+    myt_today = (datetime.now(timezone.utc) + timedelta(hours=8)).strftime("%Y-%m-%d")
+    def signal_myt_date(s):
+        try:
+            dt = datetime.fromisoformat(s.get("opened_utc", ""))
+            return (dt + timedelta(hours=8)).strftime("%Y-%m-%d")
+        except:
+            return ""
+    todays = [s for s in signals if signal_myt_date(s) == myt_today]
 
     if not todays:
         return ""
