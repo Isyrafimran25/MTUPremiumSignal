@@ -630,43 +630,22 @@ def generate_signal_message(signal_type: str, d: dict, confidence: str,
         z = sd["nearest_supply"]
         zone_note = f"Nearest supply zone sits at {z[0]}-{z[1]}."
 
-    prompt = f"""You are a professional XAUUSD scalping signal analyst for MTU Premium Telegram channel.
+    prompt = f"""You are a casual but sharp XAUUSD signal provider for MTU Premium Telegram channel.
 
-Write a signal message using EXACTLY this template. Do NOT change any numbers I provide:
+Write a short, casual signal message using EXACTLY this template. Do NOT change any numbers:
 
-{confidence_emoji} XAUUSD {signal_type} SCALP {direction_emoji}
-━━━━━━━━━━━━━━━━━━━━━
-🕐 Session: {session}
-📊 Pair: XAUUSD (Gold/USD)
-⏱ Timeframe: 15 Min Scalp
-💪 Confidence: {confidence} (Score: {score}/8)
+{confidence_emoji} {signal_type} XAUUSD NOW
 
-🎯 Entry:     {entry}
-🛑 Stop Loss: {sl}  ({sl_sign}{sl_pips} pips)
+📍 {entry}
+❌ SL {sl} (-{sl_pips} pips)
+✅ TP1 {tp1} → TP2 {tp2} → TP3 {tp3}
 
-✅ TP1: {tp1}  ({tp_sign}{tp1_pips} pips)  → R:R 1:{rr1}
-✅ TP2: {tp2}  ({tp_sign}{tp2_pips} pips)  → R:R 1:{rr2}
-✅ TP3: {tp3}  ({tp_sign}{tp3_pips} pips)  → R:R 1:{rr3}
+R:R 1:{rr3} | {confidence} | {session}
 
-📐 Risk: {sl_pips} pips  |  Best R:R: 1:{rr3}
-━━━━━━━━━━━━━━━━━━━━━
-🔍 Confluences:
-{reasons_str}
+[Write 1 short casual sentence (max 10 words) about why this setup looks good. Use: RSI={d['rsi']:.1f}, structure={zone_note if zone_note else 'key levels aligning'}. Sound like a trader talking to friends, not a robot. End with one emoji.]
 
-📝 Analysis:
-[Write exactly 3 sharp sentences in English:
- 1. Describe market structure and what it signals for this trade direction.
- 2. Explain the S&R or S&D context: {zone_note if zone_note else 'describe the key price levels at play'}.
- 3. Summarise the momentum confirmation from RSI={d['rsi']:.1f}, EMA alignment, and MACD.
- Be sharp, professional and confident. No filler words.]
-
-💡 Trade Management:
-• Close 50% at TP1 -- move SL to breakeven
-• Hold 50% for TP2/TP3
-• Exit immediately on candle close beyond SL
-
-⚠️ Not financial advice. Trade at your own risk.
-🔔 MTU Premium | XAUUSD Signals
+⚠️ Not financial advice.
+🔔 MTU Premium
 
 Output ONLY the message. No preamble or extra text."""
 
@@ -974,58 +953,44 @@ def format_tracker_message(sig: dict, event: str, current_price: float) -> str:
     sign   = "+" if floating >= 0 else ""
     pl_str = f"{sign}{floating}"
 
+    direction_emoji = "📈" if direction == "BUY" else "📉"
+
     if event == "tp1_hit":
-        emoji   = "✅"
-        title   = "TP1 HIT!"
-        action  = "Close 50% of position now.\nMove Stop Loss to breakeven entry."
-        status  = f"Target 1 reached at {current_price:.2f}"
+        msg  = f"✅ TP1 HIT! {direction} {direction_emoji}\n"
+        msg += f"📍 {current_price:.2f} | Entry was {entry}\n"
+        msg += f"Move SL to breakeven now! 💪\n"
+        msg += f"TP2 {tp2} → TP3 {tp3} still running...\n"
+        msg += f"🔔 MTU Premium"
 
     elif event == "tp2_hit":
-        emoji   = "✅✅"
-        title   = "TP2 HIT!"
-        action  = "Close another 50% of position.\nTrail remaining SL below last swing."
-        status  = f"Target 2 reached at {current_price:.2f}"
+        msg  = f"✅✅ TP2 HIT! {direction} {direction_emoji}\n"
+        msg += f"📍 {current_price:.2f} | Entry was {entry}\n"
+        msg += f"Close 50%, trail SL. Let TP3 run! 🚀\n"
+        msg += f"TP3 target: {tp3}\n"
+        msg += f"🔔 MTU Premium"
 
     elif event == "tp3_hit":
-        emoji   = "🎯"
-        title   = "TP3 HIT -- FULL CLOSE!"
-        action  = "Close entire position. Signal complete. Well done!"
-        status  = f"Full target reached at {current_price:.2f}"
+        msg  = f"🎯 TP3 HIT! FULL CLOSE! {direction} {direction_emoji}\n"
+        msg += f"📍 {current_price:.2f} | Entry was {entry}\n"
+        msg += f"Clean sweep! Close everything. GG! 🥇\n"
+        msg += f"🔔 MTU Premium"
 
     elif event == "sl_hit":
-        emoji   = "🛑"
-        title   = "STOP LOSS HIT"
-        action  = "Signal closed. Cut losses, protect your capital."
-        status  = f"SL triggered at {current_price:.2f}"
+        msg  = f"🛑 SL HIT. {direction} {direction_emoji}\n"
+        msg += f"📍 {current_price:.2f} | Entry was {entry}\n"
+        msg += f"Cut losses, protect the account. Next one! 💪\n"
+        msg += f"🔔 MTU Premium"
 
     elif event == "running_profit":
-        emoji   = "📊"
-        title   = "LIVE UPDATE"
-        action  = "Consider partial close if needed."
-        status  = f"Floating P&L: {pl_str} pips"
+        msg  = f"📊 UPDATE {direction} {direction_emoji}\n"
+        msg += f"📍 Now: {current_price:.2f} | Entry: {entry}\n"
+        msg += f"Floating: {pl_str} pips 💰\n"
+        msg += f"SL: {sl} | TP1: {tp1} | TP2: {tp2} | TP3: {tp3}\n"
+        msg += f"🔔 MTU Premium"
 
     else:
         return ""
 
-    direction_emoji = "📈" if direction == "BUY" else "📉"
-
-    msg = (
-        f"{emoji} SIGNAL UPDATE -- {direction} {direction_emoji}\n"
-        f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"🆔 Signal ID: {signal_id}\n"
-        f"📍 {title}\n"
-        f"💰 Current Price: {current_price:.2f}\n"
-        f"🎯 Entry: {entry}\n"
-        f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"📊 Levels:\n"
-        f"  SL: {sl}  |  TP1: {tp1}  |  TP2: {tp2}  |  TP3: {tp3}\n"
-        f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"📈 Status: {status}\n"
-        f"💡 Action: {action}\n"
-        f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"⚠️ Not financial advice.\n"
-        f"🔔 MTU Premium | XAUUSD Signals"
-    )
     return msg
 
 
