@@ -15,6 +15,8 @@ TELEGRAM_CHANNEL_ID = os.environ["TELEGRAM_CHANNEL_ID"]
 ANTHROPIC_API_KEY   = os.environ["ANTHROPIC_API_KEY"]
 TWELVEDATA_API_KEY  = os.environ["TWELVEDATA_API_KEY"]
 NEWSAPI_KEY         = os.environ.get("NEWSAPI_KEY", "")  # Optional -- get free at newsapi.org
+GITHUB_TOKEN        = os.environ.get("GITHUB_TOKEN", "")  # For persistent storage
+GITHUB_REPO         = os.environ.get("GITHUB_REPO", "Isyrafimran25/MTUPremiumSignal")  # repo name
 
 # ── Config ────────────────────────────────────────────────────────────────────
 MAX_SIGNALS_PER_DAY = 10
@@ -77,6 +79,75 @@ def load_state() -> dict:
 def save_state(state: dict):
     with open(SIGNAL_COUNT_FILE, "w") as f:
         json.dump(state, f)
+
+
+# ── GitHub persistent storage ─────────────────────────────────────────────────
+
+def github_get_file(filename: str) -> tuple:
+    """Get file content and SHA from GitHub repo. Returns (content, sha)."""
+    if not GITHUB_TOKEN:
+        return None, None
+    try:
+        url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{filename}"
+        r = requests.get(url, headers={
+            "Authorization": f"token {GITHUB_TOKEN}",
+            "Accept": "application/vnd.github.v3+json",
+        }, timeout=10)
+        if r.status_code == 200:
+            data = r.json()
+            import base64
+            content = base64.b64decode(data["content"]).decode("utf-8")
+            return content, data["sha"]
+        return None, None
+    except Exception as e:
+        print(f"GitHub get failed: {e}")
+        return None, None
+
+
+def github_push_file(filename: str, content: str, msg: str = "update signal data"):
+    """Push file to GitHub repo for persistent storage."""
+    if not GITHUB_TOKEN:
+        return
+    try:
+        import base64
+        _, sha = github_get_file(filename)
+        url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{filename}"
+        payload = {
+            "message": msg,
+            "content": base64.b64encode(content.encode("utf-8")).decode("utf-8"),
+        }
+        if sha:
+            payload["sha"] = sha
+        r = requests.put(url, headers={
+            "Authorization": f"token {GITHUB_TOKEN}",
+            "Accept": "application/vnd.github.v3+json",
+        }, json=payload, timeout=10)
+        if r.status_code in (200, 201):
+            print(f"GitHub: {filename} saved ok")
+        else:
+            print(f"GitHub push failed: {r.status_code} {r.text[:100]}")
+    except Exception as e:
+        print(f"GitHub push error: {e}")
+
+
+def load_open_signals_github() -> list:
+    """Load open signals from GitHub if local file empty/missing."""
+    content, _ = github_get_file("open_signals.json")
+    if content:
+        try:
+            return json.loads(content)
+        except:
+            pass
+    return []
+
+
+def save_open_signals_github(signals: list):
+    """Save open signals to both local file and GitHub."""
+    # Save locally
+    with open(OPEN_SIGNALS_FILE, "w") as f:
+        json.dump(signals, f, indent=2)
+    # Push to GitHub
+    github_push_file("open_signals.json", json.dumps(signals, indent=2), "update open signals")
 
 
 def cooldown_ok(state: dict) -> bool:
@@ -883,16 +954,27 @@ RUNNING_PROFIT_NOTIFY_INTERVAL = 3.0   # every 30 pips (3.0 price = 30 pips for 
 
 
 def load_open_signals() -> list:
+    """Load from local file first, fallback to GitHub if empty."""
     try:
         with open(OPEN_SIGNALS_FILE) as f:
-            return json.load(f)
-    except FileNotFoundError:
-        return []
+            data = json.load(f)
+            if data:
+                return data
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+    # Fallback to GitHub
+    print("Local signals empty -- fetching from GitHub...")
+    signals = load_open_signals_github()
+    if signals:
+        # Cache locally
+        with open(OPEN_SIGNALS_FILE, "w") as f:
+            json.dump(signals, f, indent=2)
+        print(f"Loaded {len(signals)} signals from GitHub")
+    return signals
 
 
 def save_open_signals(signals: list):
-    with open(OPEN_SIGNALS_FILE, "w") as f:
-        json.dump(signals, f, indent=2)
+    save_open_signals_github(signals)
 
 
 def register_signal(signal_type: str, entry: float, sl: float,
