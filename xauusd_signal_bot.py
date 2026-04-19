@@ -1925,5 +1925,9 @@ if __name__ == "__main__":
         morning_update()
     elif len(sys.argv) > 1 and sys.argv[1] == "once":
         main()
+    elif len(sys.argv) > 1 and sys.argv[1] == "weekly":
+        send_weekly_report()
+    elif len(sys.argv) > 1 and sys.argv[1] == "daily":
+        send_daily_report()
     else:
         run_loop()
