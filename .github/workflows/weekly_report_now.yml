@@ -1,0 +1,35 @@
+name: Send Weekly Report Now
+
+on:
+  workflow_dispatch:  # Manual trigger only
+
+jobs:
+  weekly-report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Restore open signals cache
+        uses: actions/cache@v4
+        with:
+          path: open_signals.json
+          key: open-signals-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            open-signals-${{ runner.os }}-
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Send weekly report
+        env:
+          TELEGRAM_BOT_TOKEN:  ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+          ANTHROPIC_API_KEY:   ${{ secrets.ANTHROPIC_API_KEY }}
+          TWELVEDATA_API_KEY:  ${{ secrets.TWELVEDATA_API_KEY }}
+        run: python xauusd_signal_bot.py weekly
