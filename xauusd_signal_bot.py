@@ -45,14 +45,17 @@ SESSIONS = {
 # In UTC:     23:00 - 18:00 (wraps midnight)
 # Off hours:  2:00 AM - 7:00 AM MYT = 18:00 - 23:00 UTC
 
-def is_active_hours(utc_hour: int) -> bool:
-    """Returns True if within active trading hours (7AM-2AM MYT)."""
-    # Active UTC hours: 23,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17
-    # Off UTC hours: 18,19,20,21,22
+def is_active_hours(utc_hour: int, utc_weekday: int = -1) -> bool:
+    """Returns True if within active trading hours (7AM-2AM MYT), Mon-Fri only."""
+    # Block weekends: Saturday=5, Sunday=6
+    # Also block Friday after 2AM MYT (Fri 18:00 UTC) till Monday 7AM MYT (Mon 23:00 UTC)
+    if utc_weekday in (5, 6):  # Saturday, Sunday
+        return False
+    # Off UTC hours: 18,19,20,21,22 (2AM-7AM MYT)
     return utc_hour not in (18, 19, 20, 21, 22)
 
-def get_current_session(utc_hour: int) -> str:
-    if not is_active_hours(utc_hour):
+def get_current_session(utc_hour: int, utc_weekday: int = -1) -> str:
+    if not is_active_hours(utc_hour, utc_weekday):
         return "Off-hours"
     active = [n for n, (s, e) in SESSIONS.items() if s <= utc_hour < e]
     return " / ".join(active) if active else "Asia"
@@ -607,10 +610,10 @@ def generate_signal_message(signal_type: str, d: dict, confidence: str,
     rr1  = round(abs(tp1 - entry) / risk, 1) if risk > 0 else 0.8
     rr2  = round(abs(tp2 - entry) / risk, 1) if risk > 0 else 1.5
     rr3  = round(abs(tp3 - entry) / risk, 1) if risk > 0 else 2.5
-    sl_pips  = round(abs(entry - sl),  2)
-    tp1_pips = round(abs(tp1 - entry), 2)
-    tp2_pips = round(abs(tp2 - entry), 2)
-    tp3_pips = round(abs(tp3 - entry), 2)
+    sl_pips  = round(abs(entry - sl)  * 10, 1)
+    tp1_pips = round(abs(tp1 - entry) * 10, 1)
+    tp2_pips = round(abs(tp2 - entry) * 10, 1)
+    tp3_pips = round(abs(tp3 - entry) * 10, 1)
     sl_sign  = "-" if signal_type == "BUY" else "+"
     tp_sign  = "+" if signal_type == "BUY" else "-"
 
@@ -796,9 +799,14 @@ def main():
     print(f"[{now_utc.strftime('%Y-%m-%d %H:%M')} UTC] Bot running...")
     print(f"Session: {session}")
 
-    if not is_active_hours(utc_hour):
-        print(f"Off-hours (2AM-7AM MYT). Bot resting.")
+    utc_weekday = now_utc.weekday()
+    if not is_active_hours(utc_hour, utc_weekday):
+        if utc_weekday in (5, 6):
+            print("Weekend -- bot resting. No signals today.")
+        else:
+            print("Off-hours (2AM-7AM MYT). Bot resting.")
         return
+
 
     state = load_state()
     if state["count"] >= MAX_SIGNALS_PER_DAY:
@@ -871,7 +879,7 @@ _DATA_DIR = pathlib.Path("/data") if pathlib.Path("/data").exists() else pathlib
 OPEN_SIGNALS_FILE = str(_DATA_DIR / "open_signals.json")
 
 # How many pips of floating profit triggers a running-profit update
-RUNNING_PROFIT_NOTIFY_INTERVAL = 5.0   # every $5 move after entry
+RUNNING_PROFIT_NOTIFY_INTERVAL = 3.0   # every 30 pips (3.0 price = 30 pips for XAUUSD)
 
 
 def load_open_signals() -> list:
@@ -946,13 +954,13 @@ def format_tracker_message(sig: dict, event: str, current_price: float) -> str:
 
     # Floating P&L in dollars (1 lot XAUUSD = $100/pip, we use pips as proxy)
     if direction == "BUY":
-        floating = round(current_price - entry, 2)
+        floating = round((current_price - entry) * 10, 1)
     else:
-        floating = round(entry - current_price, 2)
+        floating = round((entry - current_price) * 10, 1)
 
     sign   = "+" if floating >= 0 else ""
-    pl_str = f"{sign}{floating}"
-
+    sign   = "+" if floating >= 0 else ""
+    pl_str = sign + str(int(floating) if floating == int(floating) else floating)
     direction_emoji = "📈" if direction == "BUY" else "📉"
 
     if event == "tp1_hit":
@@ -984,7 +992,7 @@ def format_tracker_message(sig: dict, event: str, current_price: float) -> str:
     elif event == "running_profit":
         msg  = f"📊 UPDATE {direction} {direction_emoji}\n"
         msg += f"📍 Now: {current_price:.2f} | Entry: {entry}\n"
-        msg += f"Floating: {pl_str} pips 💰\n"
+        msg += f"Running Profit: {pl_str} pips 💰\\n"
         msg += f"SL: {sl} | TP1: {tp1} | TP2: {tp2} | TP3: {tp3}\n"
         msg += f"🔔 MTU Premium"
 
@@ -1039,15 +1047,21 @@ def check_and_update_signals():
                  (direction == "SELL" and price >= sl)
 
         if sl_hit and not sig["sl_hit"]:
-            print(f"Signal {sig['id']}: SL hit at {price:.2f}")
-            msg = format_tracker_message(sig, "sl_hit", price)
-            try:
-                send_to_telegram(msg)
-            except Exception as e:
-                print(f"Telegram failed: {e}")
             sig["sl_hit"] = True
             sig["status"] = "sl_hit"
             updated = True
+            # If TP1 already hit -- price pulled back after running profit
+            # Skip SL notification, just silently close and focus on next signal
+            if sig.get("tp1_hit"):
+                print(f"Signal {sig['id']}: Price pulled back after TP1 -- closing silently, no SL alert.")
+            else:
+                # Fresh SL hit with no prior TP -- notify channel
+                print(f"Signal {sig['id']}: SL hit at {price:.2f}")
+                msg = format_tracker_message(sig, "sl_hit", price)
+                try:
+                    send_to_telegram(msg)
+                except Exception as e:
+                    print(f"Telegram failed: {e}")
             continue   # no more checks needed
 
         # ── Check TP3 hit ─────────────────────────────────────────────────────
@@ -1109,13 +1123,23 @@ def check_and_update_signals():
 
         last_notified = sig.get("last_notified_profit", 0.0)
 
-        # Notify every RUNNING_PROFIT_NOTIFY_INTERVAL pips of profit
-        if (floating > 0 and
-                floating - last_notified >= RUNNING_PROFIT_NOTIFY_INTERVAL):
-            print(f"Signal {sig['id']}: Running profit update +{floating}")
-            msg = format_tracker_message(sig, "running_profit", price)
+        # Convert floating price to pips for XAUUSD (x10)
+        floating_pips = round(floating * 10, 1)
+        last_notified_pips = round(sig.get("last_notified_profit", 0.0) * 10, 1)
+
+        # Trigger at 30 pips running profit
+        if floating_pips >= 30 and floating_pips - last_notified_pips >= 30:
+            print(f"Signal {sig['id']}: Running profit +{floating_pips} pips -- sending BE reminder")
+            # Special BE reminder message at 30 pips
+            direction_emoji = "📈" if direction == "BUY" else "📉"
+            be_msg  = f"🔔 {direction} UPDATE {direction_emoji}\n"
+            be_msg += f"Running +{floating_pips} pips! 💰\n"
+            be_msg += f"📍 Now: {price:.2f} | Entry: {entry}\n"
+            be_msg += f"Close half now + set BE tight! 🛡️\n"
+            be_msg += f"Let the rest run to TP2/TP3 🚀\n"
+            be_msg += f"🔔 MTU Premium"
             try:
-                send_to_telegram(msg)
+                send_to_telegram(be_msg)
             except Exception as e:
                 print(f"Telegram failed: {e}")
             sig["last_notified_profit"] = floating
@@ -1138,9 +1162,14 @@ def main():
     print(f"[{now_utc.strftime('%Y-%m-%d %H:%M')} UTC] Bot running...")
     print(f"Session: {session}")
 
-    if not is_active_hours(utc_hour):
-        print(f"Off-hours (2AM-7AM MYT). Bot resting.")
+    utc_weekday = now_utc.weekday()
+    if not is_active_hours(utc_hour, utc_weekday):
+        if utc_weekday in (5, 6):
+            print("Weekend -- bot resting. No signals today.")
+        else:
+            print("Off-hours (2AM-7AM MYT). Bot resting.")
         return
+
 
     # ── Always run tracker first on every 30-min cycle ───────────────────────
     print("\n--- Running signal tracker ---")
@@ -1608,9 +1637,9 @@ def generate_daily_report() -> str:
         if status == "closed":
             # TP3 hit
             if direction == "BUY":
-                pips = round(tp3 - entry, 2)
+                pips = round((tp3 - entry) * 10, 1)
             else:
-                pips = round(entry - tp3, 2)
+                pips = round((entry - tp3) * 10, 1)
             wins += 1
             win_pips += pips
             result = f"WIN +{pips} pips (TP3)"
@@ -1618,9 +1647,9 @@ def generate_daily_report() -> str:
 
         elif status == "tp2_hit":
             if direction == "BUY":
-                pips = round(tp2 - entry, 2)
+                pips = round((tp2 - entry) * 10, 1)
             else:
-                pips = round(entry - tp2, 2)
+                pips = round((entry - tp2) * 10, 1)
             wins += 1
             win_pips += pips
             result = f"WIN +{pips} pips (TP2)"
@@ -1628,9 +1657,9 @@ def generate_daily_report() -> str:
 
         elif status == "tp1_hit":
             if direction == "BUY":
-                pips = round(tp1 - entry, 2)
+                pips = round((tp1 - entry) * 10, 1)
             else:
-                pips = round(entry - tp1, 2)
+                pips = round((entry - tp1) * 10, 1)
             wins += 1
             win_pips += pips
             result = f"WIN +{pips} pips (TP1)"
@@ -1638,9 +1667,9 @@ def generate_daily_report() -> str:
 
         elif status == "sl_hit":
             if direction == "BUY":
-                pips = round(entry - sl, 2)
+                pips = round((entry - sl) * 10, 1)
             else:
-                pips = round(sl - entry, 2)
+                pips = round((sl - entry) * 10, 1)
             losses += 1
             loss_pips += pips
             result = f"LOSS -{pips} pips (SL)"
@@ -1706,6 +1735,137 @@ def send_daily_report():
     except Exception as e:
         print(f"Daily report failed: {e}")
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  WEEKLY PERFORMANCE TRACKER
+# ══════════════════════════════════════════════════════════════════════════════
+
+def generate_weekly_report() -> str:
+    """Weekly summary -- sent every Saturday 8AM MYT (00:00 UTC Saturday)."""
+    from datetime import timedelta
+    signals = load_open_signals()
+
+    # Get signals from last 7 days
+    now_utc   = datetime.now(timezone.utc)
+    week_ago  = now_utc - timedelta(days=7)
+
+    weekly = []
+    for s in signals:
+        try:
+            opened = datetime.fromisoformat(s.get("opened_utc", ""))
+            if opened >= week_ago:
+                weekly.append(s)
+        except:
+            pass
+
+    if not weekly:
+        return ""
+
+    total     = len(weekly)
+    wins      = 0
+    losses    = 0
+    open_sigs = 0
+    win_pips  = 0.0
+    loss_pips = 0.0
+
+    best_trade   = None
+    best_pips    = 0.0
+    worst_trade  = None
+    worst_pips   = 0.0
+
+    for s in weekly:
+        direction = s["type"]
+        entry     = s["entry"]
+        status    = s.get("status", "open")
+
+        if status == "closed":
+            pips = round(abs(s["tp3"] - entry) * 10, 1)
+            wins += 1
+            win_pips += pips
+            if pips > best_pips:
+                best_pips  = pips
+                best_trade = f"{direction} +{pips} pips (TP3)"
+        elif status == "tp2_hit":
+            pips = round(abs(s["tp2"] - entry) * 10, 1)
+            wins += 1
+            win_pips += pips
+            if pips > best_pips:
+                best_pips  = pips
+                best_trade = f"{direction} +{pips} pips (TP2)"
+        elif status == "tp1_hit":
+            pips = round(abs(s["tp1"] - entry) * 10, 1)
+            wins += 1
+            win_pips += pips
+            if pips > best_pips:
+                best_pips  = pips
+                best_trade = f"{direction} +{pips} pips (TP1)"
+        elif status == "sl_hit":
+            pips = round(abs(s["sl"] - entry) * 10, 1)
+            losses += 1
+            loss_pips += pips
+            if pips > worst_pips:
+                worst_pips  = pips
+                worst_trade = f"{direction} -{pips} pips (SL)"
+        else:
+            open_sigs += 1
+
+    win_rate = round((wins / (wins + losses) * 100), 1) if (wins + losses) > 0 else 0
+    net_pips = round(win_pips - loss_pips, 2)
+    net_sign = "+" if net_pips >= 0 else ""
+
+    if win_rate >= 70:
+        grade = "S -- Excellent week!"
+    elif win_rate >= 55:
+        grade = "A -- Great week!"
+    elif win_rate >= 45:
+        grade = "B -- Decent week"
+    elif win_rate >= 30:
+        grade = "C -- Below average"
+    else:
+        grade = "D -- Rough week, review strategy"
+
+    # Date range
+    from_date = week_ago.strftime("%d %b")
+    to_date   = now_utc.strftime("%d %b %Y")
+
+    msg  = "WEEKLY PERFORMANCE REPORT\n"
+    msg += from_date + " - " + to_date + "\n"
+    msg += "-------------------\n"
+    msg += "Total Signals: " + str(total) + "\n"
+    msg += "Wins:   " + str(wins) + "\n"
+    msg += "Losses: " + str(losses) + "\n"
+    msg += "Open:   " + str(open_sigs) + "\n"
+    msg += "-------------------\n"
+    msg += "Win Rate:  " + str(win_rate) + "%\n"
+    msg += "Win Pips:  +" + str(round(win_pips, 1)) + "\n"
+    msg += "Loss Pips: -" + str(round(loss_pips, 1)) + "\n"
+    msg += "Net Pips:  " + net_sign + str(net_pips) + "\n"
+    msg += "-------------------\n"
+    if best_trade:
+        msg += "Best trade:  " + best_trade + "\n"
+    if worst_trade:
+        msg += "Worst trade: " + worst_trade + "\n"
+    msg += "-------------------\n"
+    msg += "Grade: " + grade + "\n"
+    msg += "-------------------\n"
+    msg += "New week starts Monday 7AM!\n"
+    msg += "Let's get it! MTU Premium"
+    return msg
+
+
+def send_weekly_report():
+    """Called every Saturday 8AM MYT (00:00 UTC Saturday)."""
+    print("Generating weekly performance report...")
+    try:
+        msg = generate_weekly_report()
+        if not msg:
+            print("No signals this week -- skipping weekly report.")
+            return
+        send_to_telegram(msg)
+        print("Weekly report sent!")
+    except Exception as e:
+        print(f"Weekly report failed: {e}")
+
 import time
 
 def run_loop():
@@ -1715,9 +1875,10 @@ def run_loop():
     Sends morning update once per day at 00:00 UTC (08:00 MYT).
     """
     print("MTU Premium Signal Bot starting -- Railway mode...")
-    morning_sent_date      = None
-    fundamental_sent_date  = None
-    daily_report_sent_date = None
+    morning_sent_date       = None
+    fundamental_sent_date   = None
+    daily_report_sent_date  = None
+    weekly_report_sent_date = None
 
     while True:
         try:
@@ -1725,7 +1886,7 @@ def run_loop():
             today   = now_utc.date()
 
             # ── Morning update once per day at 00:00 UTC (08:00 MYT) ─────────
-            if now_utc.hour == 0 and now_utc.minute < 2 and morning_sent_date != today:
+            if now_utc.hour == 0 and now_utc.minute < 2 and morning_sent_date != today and now_utc.weekday() < 5:
                 print("Sending morning update...")
                 morning_update()
                 morning_sent_date = today
@@ -1741,6 +1902,12 @@ def run_loop():
                 print("Sending daily performance report...")
                 send_daily_report()
                 daily_report_sent_date = today
+
+            # -- Weekly report every Saturday 00:00 UTC (8AM MYT Saturday) --
+            if now_utc.weekday() == 5 and now_utc.hour == 0 and now_utc.minute < 2 and weekly_report_sent_date != today:
+                print("Sending weekly performance report...")
+                send_weekly_report()
+                weekly_report_sent_date = today
 
             # ── Signal check ──────────────────────────────────────────────────
             main()
