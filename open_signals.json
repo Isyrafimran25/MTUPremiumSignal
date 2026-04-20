@@ -1,1 +1,20 @@
-
+[
+  {
+    "id": "202604200813",
+    "type": "BUY",
+    "entry": 4791.20001,
+    "sl": 4788.18,
+    "tp1": 4794.22,
+    "tp2": 4797.24,
+    "tp3": 4800.26,
+    "confidence": "MEDIUM",
+    "session": "London",
+    "status": "open",
+    "tp1_hit": false,
+    "tp2_hit": false,
+    "tp3_hit": false,
+    "sl_hit": false,
+    "last_notified_profit": 0.0,
+    "opened_utc": "2026-04-20T08:13:51.074850+00:00"
+  }
+]
