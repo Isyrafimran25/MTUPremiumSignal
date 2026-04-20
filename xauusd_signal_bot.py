@@ -724,7 +724,7 @@ tp_sign  = "+" if signal_type == "BUY" else "-"
 
 direction_emoji  = "📈" if signal_type == "BUY" else "📉"
 confidence_emoji = "🔥" if confidence == "HIGH" else "⚡"
-reasons_str      = "\n".join(f"  • {r}" for r in reasons[:6])
+reasons_str      = "\n".join(f"  - {r}" for r in reasons[:6])
 
 zone_note = ""
 if signal_type == "BUY" and sd.get("in_demand"):
@@ -828,16 +828,18 @@ Write a daily morning market update using EXACTLY this format:
 {direction} Change: {sign}{change} ({sign}{change_pct}%)
 
 📊 Technical Summary:
-• Structure: {structure_label}
-• RSI(14): {d[‘rsi’]:.1f}
-• EMA9: {d[‘ema9’]:.2f} | EMA21: {d[‘ema21’]:.2f}
-• ATR(14): {d[‘atr’]:.2f}
+
+- Structure: {structure_label}
+- RSI(14): {d[‘rsi’]:.1f}
+- EMA9: {d[‘ema9’]:.2f} | EMA21: {d[‘ema21’]:.2f}
+- ATR(14): {d[‘atr’]:.2f}
 
 🗺 Key Levels Today:
-• Resistance: {sr[‘resistance’]}
-• Support: {sr[‘support’]}
-• Supply Zone: {supply_str}
-• Demand Zone: {demand_str}
+
+- Resistance: {sr[‘resistance’]}
+- Support: {sr[‘support’]}
+- Supply Zone: {supply_str}
+- Demand Zone: {demand_str}
 
 🧭 Bias: {structure_label}
 ━━━━━━━━━━━━━━━━━━━━━
