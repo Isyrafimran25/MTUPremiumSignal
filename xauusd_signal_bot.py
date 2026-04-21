@@ -653,8 +653,8 @@ def generate_signal_message(signal_type: str, d: dict, confidence: str,
         sl_atr  = round(price - atr * 1.2, 2)
         sl_raw  = max(sl_sr, sl_atr)
         # Cap SL to max 50 pips below entry
-        sl      = round(max(sl_raw, price - MAX_SL_PIPS), 2)
-        risk    = round(price - sl, 2)
+        sl_cap  = price - (MAX_SL_PIPS / 10)  # 50 pips = 5.0 price for XAUUSD
+        sl      = round(max(sl_raw, sl_cap), 2)  # use tighter of raw vs cap
         # TP2 must be at least 2x risk (1:2 R:R minimum)
         tp1     = round(price + risk * 1.0, 2)   # 1:1
         tp2     = round(price + risk * 2.0, 2)   # 1:2 minimum
@@ -668,8 +668,8 @@ def generate_signal_message(signal_type: str, d: dict, confidence: str,
         sl_sr   = round(sr.get("resistance", price + atr * 1.2) + atr * 0.3, 2)
         sl_atr  = round(price + atr * 1.2, 2)
         sl_raw  = min(sl_sr, sl_atr)
-        # Cap SL to max 50 pips above entry
-        sl      = round(min(sl_raw, price + MAX_SL_PIPS), 2)
+        sl_cap  = price + (MAX_SL_PIPS / 10)  # 50 pips = 5.0 price for XAUUSD
+        sl      = round(min(sl_raw, sl_cap), 2)  # use tighter of raw vs cap
         risk    = round(sl - price, 2)
         # TP2 must be at least 2x risk (1:2 R:R minimum)
         tp1     = round(price - risk * 1.0, 2)   # 1:1
@@ -682,8 +682,8 @@ def generate_signal_message(signal_type: str, d: dict, confidence: str,
 
     # Block signal if SL exceeds 50 pips hard cap
     actual_risk = round(abs(entry - sl), 2)
-    if actual_risk > MAX_SL_PIPS:
-        print(f"Signal blocked -- SL {actual_risk} pips exceeds {MAX_SL_PIPS} pip hard cap.")
+    if actual_risk > (MAX_SL_PIPS / 10):
+        print(f"Signal blocked -- SL {actual_risk*10:.1f} pips exceeds {MAX_SL_PIPS} pip hard cap.")
         return None
 
     # Block signal if R:R at TP2 is less than 1:2
@@ -1342,8 +1342,8 @@ def main():
         entry   = price
         sl_sr   = round(sr.get("support", price - atr * 1.2) - atr * 0.3, 2)
         sl_atr  = round(price - atr * 1.2, 2)
-        sl_raw  = max(sl_sr, sl_atr)
-        sl      = round(max(sl_raw, price - MAX_SL_PIPS), 2)
+        sl_cap  = price - (MAX_SL_PIPS / 10)
+        sl      = round(max(sl_raw, sl_cap), 2)
         risk     = round(price - sl, 2)
         tp1      = round(price + risk * 1.0, 2)
         tp2      = round(price + risk * 2.0, 2)
@@ -1354,8 +1354,8 @@ def main():
         entry   = price
         sl_sr   = round(sr.get("resistance", price + atr * 1.2) + atr * 0.3, 2)
         sl_atr  = round(price + atr * 1.2, 2)
-        sl_raw  = min(sl_sr, sl_atr)
-        sl      = round(min(sl_raw, price + MAX_SL_PIPS), 2)
+        sl_cap  = price + (MAX_SL_PIPS / 10)
+        sl      = round(min(sl_raw, sl_cap), 2)
         risk     = round(sl - price, 2)
         tp1      = round(price - risk * 1.0, 2)
         tp2      = round(price - risk * 2.0, 2)
