@@ -635,6 +635,61 @@ def check_conditions(d: dict) -> tuple:
 
 # ── AI signal message generator ───────────────────────────────────────────────
 
+def calculate_levels(signal_type: str, price: float, atr: float, sr: dict) -> dict:
+    """
+    Single source of truth for all SL/TP calculations.
+    Returns dict with entry, sl, tp1, tp2, tp3, risk, blocked, reason.
+    """
+    MAX_SL_PIPS = 50   # 50 pips = 5.0 price units for XAUUSD
+    MIN_RR      = 2.0
+    MIN_TP_GAP  = 0.5  # 5 pips minimum gap between TP levels
+
+    if signal_type == "BUY":
+        entry    = price
+        sl_sr    = round(sr.get("support", price - atr * 1.2) - atr * 0.3, 2)
+        sl_atr   = round(price - atr * 1.2, 2)
+        sl_raw   = max(sl_sr, sl_atr)
+        sl_cap   = round(price - (MAX_SL_PIPS / 10), 2)
+        sl       = round(max(sl_raw, sl_cap), 2)
+        risk     = round(price - sl, 2)
+        tp1      = round(price + risk * 1.0, 2)
+        tp2      = round(price + risk * 2.0, 2)
+        tp3_base = round(price + risk * 3.0, 2)
+        tp3_sr   = sr.get("resistance", tp3_base)
+        tp3      = round(tp3_sr if tp3_sr > tp2 else tp3_base, 2)
+    else:
+        entry    = price
+        sl_sr    = round(sr.get("resistance", price + atr * 1.2) + atr * 0.3, 2)
+        sl_atr   = round(price + atr * 1.2, 2)
+        sl_raw   = min(sl_sr, sl_atr)
+        sl_cap   = round(price + (MAX_SL_PIPS / 10), 2)
+        sl       = round(min(sl_raw, sl_cap), 2)
+        risk     = round(sl - price, 2)
+        tp1      = round(price - risk * 1.0, 2)
+        tp2      = round(price - risk * 2.0, 2)
+        tp3_base = round(price - risk * 3.0, 2)
+        tp3_sr   = sr.get("support", tp3_base)
+        tp3      = round(tp3_sr if tp3_sr < tp2 else tp3_base, 2)
+
+    actual_risk = round(abs(entry - sl), 2)
+
+    # Validation checks
+    if actual_risk > (MAX_SL_PIPS / 10):
+        return {"blocked": True, "reason": f"SL {actual_risk*10:.1f} pips exceeds {MAX_SL_PIPS} pip hard cap"}
+
+    tp2_rr = round(abs(tp2 - entry) / actual_risk, 2) if actual_risk > 0 else 0
+    if tp2_rr < MIN_RR:
+        return {"blocked": True, "reason": f"R:R {tp2_rr} at TP2 below minimum 1:{MIN_RR}"}
+
+    if abs(tp2 - tp1) < MIN_TP_GAP or abs(tp3 - tp2) < MIN_TP_GAP:
+        return {"blocked": True, "reason": "TP levels too close -- ATR too small"}
+
+    return {
+        "blocked": False, "entry": entry, "sl": sl,
+        "tp1": tp1, "tp2": tp2, "tp3": tp3, "risk": actual_risk
+    }
+
+
 def generate_signal_message(signal_type: str, d: dict, confidence: str,
                              session: str, reasons: list,
                              score: int, analysis: dict) -> str:
@@ -643,64 +698,17 @@ def generate_signal_message(signal_type: str, d: dict, confidence: str,
     sr    = analysis.get("sr", {})
     sd    = analysis.get("sd", {})
 
-    # ── Risk & R:R rules ──────────────────────────────────────────────────────
-    MAX_SL_PIPS = 50     # hard cap -- SL max 50 pips from entry
-    MIN_RR      = 2.0    # minimum R:R 1:2 (TP2 must be 2x the risk)
-
-    if signal_type == "BUY":
-        entry   = price
-        sl_sr   = round(sr.get("support", price - atr * 1.2) - atr * 0.3, 2)
-        sl_atr  = round(price - atr * 1.2, 2)
-        sl_raw  = max(sl_sr, sl_atr)
-        # Cap SL to max 50 pips below entry
-        sl_cap  = price - (MAX_SL_PIPS / 10)  # 50 pips = 5.0 price for XAUUSD
-        sl      = round(max(sl_raw, sl_cap), 2)  # use tighter of raw vs cap
-        risk    = round(price - sl, 2)
-        # TP2 must be at least 2x risk (1:2 R:R minimum)
-        tp1     = round(price + risk * 1.0, 2)   # 1:1
-        tp2     = round(price + risk * 2.0, 2)   # 1:2 minimum
-        # TP3 must ALWAYS be higher than TP2 for BUY
-        tp3_base = round(price + risk * 3.0, 2)
-        tp3_sr   = sr.get("resistance", tp3_base)
-        # Only use SR if it's above TP2, otherwise use ATR-based TP3
-        tp3      = round(tp3_sr if tp3_sr > tp2 else tp3_base, 2)
-    else:
-        entry   = price
-        sl_sr   = round(sr.get("resistance", price + atr * 1.2) + atr * 0.3, 2)
-        sl_atr  = round(price + atr * 1.2, 2)
-        sl_raw  = min(sl_sr, sl_atr)
-        sl_cap  = price + (MAX_SL_PIPS / 10)  # 50 pips = 5.0 price for XAUUSD
-        sl      = round(min(sl_raw, sl_cap), 2)  # use tighter of raw vs cap
-        risk    = round(sl - price, 2)
-        # TP2 must be at least 2x risk (1:2 R:R minimum)
-        tp1     = round(price - risk * 1.0, 2)   # 1:1
-        tp2     = round(price - risk * 2.0, 2)   # 1:2 minimum
-        # TP3 must ALWAYS be lower than TP2 for SELL
-        tp3_base = round(price - risk * 3.0, 2)
-        tp3_sr   = sr.get("support", tp3_base)
-        # Only use SR if it's below TP2, otherwise use ATR-based TP3
-        tp3      = round(tp3_sr if tp3_sr < tp2 else tp3_base, 2)
-
-    # Block signal if SL exceeds 50 pips hard cap
-    actual_risk = round(abs(entry - sl), 2)
-    if actual_risk > (MAX_SL_PIPS / 10):
-        print(f"Signal blocked -- SL {actual_risk*10:.1f} pips exceeds {MAX_SL_PIPS} pip hard cap.")
+    levels = calculate_levels(signal_type, price, atr, sr)
+    if levels["blocked"]:
+        print(f"Signal blocked -- {levels['reason']}")
         return None
 
-    # Block signal if R:R at TP2 is less than 1:2
-    tp2_rr = round(abs(tp2 - entry) / actual_risk, 2) if actual_risk > 0 else 0
-    if tp2_rr < MIN_RR:
-        print(f"Signal blocked -- R:R {tp2_rr} at TP2 is below minimum 1:{MIN_RR}.")
-        return None
-
-    # Block signal if TP levels too close together (ATR too small -- ranging market)
-    # Minimum 5 pips between each TP level
-    MIN_TP_GAP = 0.5  # 5 pips minimum gap between TP levels
-    tp1_tp2_gap = round(abs(tp2 - tp1), 2)
-    tp2_tp3_gap = round(abs(tp3 - tp2), 2)
-    if tp1_tp2_gap < MIN_TP_GAP or tp2_tp3_gap < MIN_TP_GAP:
-        print(f"Signal blocked -- TP levels too close (TP1-TP2: {tp1_tp2_gap}, TP2-TP3: {tp2_tp3_gap}). ATR too small.")
-        return None
+    entry = levels["entry"]
+    sl    = levels["sl"]
+    tp1   = levels["tp1"]
+    tp2   = levels["tp2"]
+    tp3   = levels["tp3"]
+    risk  = levels["risk"]
 
     risk = actual_risk
     rr1  = round(abs(tp1 - entry) / risk, 1) if risk > 0 else 0.8
@@ -949,7 +957,11 @@ def main():
             signal_type, data, confidence, session, reasons, score, analysis)
     except Exception as e:
         print(f"AI generation failed: {e}"); return
+        print(f"AI generation failed: {e}"); return
 
+    if not message:
+        print("Signal blocked inside generator -- skipping.")
+        return
     print("-" * 50)
     print(message)
     print("-" * 50)
@@ -1340,36 +1352,16 @@ def main():
         print("Signal blocked inside generator -- skipping.")
         return
 
-    # ── Calculate levels (same logic as generate_signal_message) ─────────────
-    price = data["price"]
-    atr   = data["atr"]
-    MAX_SL_PIPS = 50
-    if signal_type == "BUY":
-        entry   = price
-        sl_sr   = round(sr.get("support", price - atr * 1.2) - atr * 0.3, 2)
-        sl_atr  = round(price - atr * 1.2, 2)
-        sl_raw  = max(sl_sr, sl_atr)
-        sl_cap  = price - (MAX_SL_PIPS / 10)
-        sl      = round(max(sl_raw, sl_cap), 2)
-        risk     = round(price - sl, 2)
-        tp1      = round(price + risk * 1.0, 2)
-        tp2      = round(price + risk * 2.0, 2)
-        tp3_base = round(price + risk * 3.0, 2)
-        tp3_sr   = sr.get("resistance", tp3_base)
-        tp3      = round(tp3_sr if tp3_sr > tp2 else tp3_base, 2)
-    else:
-        entry   = price
-        sl_sr   = round(sr.get("resistance", price + atr * 1.2) + atr * 0.3, 2)
-        sl_atr  = round(price + atr * 1.2, 2)
-        sl_raw  = min(sl_sr, sl_atr)
-        sl_cap  = price + (MAX_SL_PIPS / 10)
-        sl      = round(min(sl_raw, sl_cap), 2)
-        risk     = round(sl - price, 2)
-        tp1      = round(price - risk * 1.0, 2)
-        tp2      = round(price - risk * 2.0, 2)
-        tp3_base = round(price - risk * 3.0, 2)
-        tp3_sr   = sr.get("support", tp3_base)
-        tp3      = round(tp3_sr if tp3_sr < tp2 else tp3_base, 2)
+    # ── Calculate levels using shared function ───────────────────────────────
+    levels = calculate_levels(signal_type, data["price"], data["atr"], sr)
+    if levels["blocked"]:
+        print(f"Signal blocked in main: {levels['reason']}")
+        return
+    entry = levels["entry"]
+    sl    = levels["sl"]
+    tp1   = levels["tp1"]
+    tp2   = levels["tp2"]
+    tp3   = levels["tp3"]
 
     print("-" * 50)
     print(message)
