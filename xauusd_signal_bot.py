@@ -1335,6 +1335,11 @@ def main():
     except Exception as e:
         print(f"AI generation failed: {e}"); return
 
+    # If signal blocked inside generate_signal_message, message is None
+    if not message:
+        print("Signal blocked inside generator -- skipping.")
+        return
+
     # ── Calculate levels (same logic as generate_signal_message) ─────────────
     price = data["price"]
     atr   = data["atr"]
@@ -1343,6 +1348,7 @@ def main():
         entry   = price
         sl_sr   = round(sr.get("support", price - atr * 1.2) - atr * 0.3, 2)
         sl_atr  = round(price - atr * 1.2, 2)
+        sl_raw  = max(sl_sr, sl_atr)
         sl_cap  = price - (MAX_SL_PIPS / 10)
         sl      = round(max(sl_raw, sl_cap), 2)
         risk     = round(price - sl, 2)
@@ -1355,6 +1361,7 @@ def main():
         entry   = price
         sl_sr   = round(sr.get("resistance", price + atr * 1.2) + atr * 0.3, 2)
         sl_atr  = round(price + atr * 1.2, 2)
+        sl_raw  = min(sl_sr, sl_atr)
         sl_cap  = price + (MAX_SL_PIPS / 10)
         sl      = round(min(sl_raw, sl_cap), 2)
         risk     = round(sl - price, 2)
