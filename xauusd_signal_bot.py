@@ -655,6 +655,7 @@ def generate_signal_message(signal_type: str, d: dict, confidence: str,
         # Cap SL to max 50 pips below entry
         sl_cap  = price - (MAX_SL_PIPS / 10)  # 50 pips = 5.0 price for XAUUSD
         sl      = round(max(sl_raw, sl_cap), 2)  # use tighter of raw vs cap
+        risk    = round(price - sl, 2)
         # TP2 must be at least 2x risk (1:2 R:R minimum)
         tp1     = round(price + risk * 1.0, 2)   # 1:1
         tp2     = round(price + risk * 2.0, 2)   # 1:2 minimum
