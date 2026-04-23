@@ -51,12 +51,36 @@ SESSIONS = {
 
 def is_active_hours(utc_hour: int, utc_weekday: int = -1) -> bool:
     """Returns True if within active trading hours (7AM-2AM MYT), Mon-Fri only."""
-    # Block weekends: Saturday=5, Sunday=6
-    # Also block Friday after 2AM MYT (Fri 18:00 UTC) till Monday 7AM MYT (Mon 23:00 UTC)
     if utc_weekday in (5, 6):  # Saturday, Sunday
         return False
     # Off UTC hours: 18,19,20,21,22 (2AM-7AM MYT)
     return utc_hour not in (18, 19, 20, 21, 22)
+
+
+def get_fetch_interval(utc_hour: int) -> int:
+    """
+    Smart interval -- fetch more often during high volatility sessions,
+    less often during quiet periods. Keeps usage under 800 credits/day.
+
+    High activity (180s):  Asia open, London open, NY open
+    Low activity  (300s):  Mid-session quiet periods
+    Off hours     (skip):  No fetch at all
+
+    Budget:
+      High (180s): ~6 hours x 20 calls/hr = 120 calls
+      Low  (300s): ~6 hours x 12 calls/hr = 72 calls
+      Total: ~192 calls/day -- well under 800 limit!
+    """
+    # High activity windows (UTC):
+    # Asia open:   00:00-04:00 UTC (08:00-12:00 MYT)
+    # London open: 07:00-10:00 UTC (15:00-18:00 MYT)
+    # NY open:     13:00-16:00 UTC (21:00-00:00 MYT)
+    HIGH_ACTIVITY = (0, 1, 2, 3, 7, 8, 9, 13, 14, 15)
+
+    if utc_hour in HIGH_ACTIVITY:
+        return 180   # check every 3 minutes during active sessions
+    else:
+        return 300   # check every 5 minutes during quiet periods
 
 def get_current_session(utc_hour: int, utc_weekday: int = -1) -> str:
     if not is_active_hours(utc_hour, utc_weekday):
@@ -2001,7 +2025,7 @@ def start_websocket():
     try:
         import websocket as ws_lib
     except ImportError:
-        print("websocket-client not installed -- falling back to REST polling")
+        print("websocket-client not installed -- falling back to REST polling (pip install websocket-client)", flush=True)
         _ws_connected = False
         return
 
@@ -2131,15 +2155,16 @@ def run_loop():
             print(f"Loop error: {e}")
 
         # Sleep 30s if WebSocket connected (no API credits used for price)
-        # Sleep 120s if WebSocket not available (REST polling mode)
+        # Smart sleep -- longer during quiet periods to save API credits
+        now_h    = datetime.now(timezone.utc).hour
+        interval = get_fetch_interval(now_h)
         if _ws_connected:
-            time.sleep(30)
-        else:
-            print("Sleeping 120 seconds (REST mode)...")
-            time.sleep(120)
+            interval = min(interval, 30)  # WebSocket -- faster
+        print(f"Sleeping {interval} seconds...")
+        time.sleep(interval)
+        time.sleep(interval)
 
 
-if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "morning":
         morning_update()
     elif len(sys.argv) > 1 and sys.argv[1] == "once":
