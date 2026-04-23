@@ -19,6 +19,7 @@ TWELVEDATA_API_KEY  = os.environ["TWELVEDATA_API_KEY"]
 NEWSAPI_KEY         = os.environ.get("NEWSAPI_KEY", "")  # Optional -- get free at newsapi.org
 GITHUB_TOKEN        = os.environ.get("GITHUB_TOKEN", "")  # For persistent storage
 GITHUB_REPO         = os.environ.get("GITHUB_REPO", "Isyrafimran25/MTUPremiumSignal")  # repo name
+FINNHUB_API_KEY     = os.environ.get("FINNHUB_API_KEY", "")  # Real-time WebSocket price feed
 
 # ── Config ────────────────────────────────────────────────────────────────────
 MAX_SIGNALS_PER_DAY = 10
@@ -2016,16 +2017,21 @@ _last_signal_check = None   # prevent signal spam on every tick
 
 def start_websocket():
     """
-    Connect to Twelve Data WebSocket for real-time XAUUSD price.
+    Connect to Finnhub WebSocket for real-time XAUUSD price (free, no credit limits).
     Runs in background thread -- updates _latest_price on every tick.
     Falls back to REST polling if websocket fails.
     """
     global _ws_connected
 
+    if not FINNHUB_API_KEY:
+        print("FINNHUB_API_KEY not set -- falling back to REST polling")
+        _ws_connected = False
+        return
+
     try:
         import websocket as ws_lib
     except ImportError:
-        print("websocket-client not installed -- falling back to REST polling (pip install websocket-client)", flush=True)
+        print("websocket-client not installed -- falling back to REST polling")
         _ws_connected = False
         return
 
@@ -2033,8 +2039,10 @@ def start_websocket():
         global _latest_price
         try:
             data = json.loads(message)
-            if data.get("event") == "price" and "price" in data:
-                _latest_price["price"]      = float(data["price"])
+            # Finnhub sends: {"data":[{"p":price,"s":"OANDA:XAU_USD","t":timestamp,"v":volume}],"type":"trade"}
+            if data.get("type") == "trade" and data.get("data"):
+                tick = data["data"][-1]  # latest tick
+                _latest_price["price"]      = float(tick["p"])
                 _latest_price["updated_at"] = datetime.now(timezone.utc)
         except Exception as e:
             pass
@@ -2042,28 +2050,25 @@ def start_websocket():
     def on_open(ws):
         global _ws_connected
         _ws_connected = True
-        print("WebSocket connected -- real-time price feed active!")
-        subscribe_msg = json.dumps({
-            "action":    "subscribe",
-            "params":    {"symbols": "XAU/USD"},
-        })
-        ws.send(subscribe_msg)
+        print("Finnhub WebSocket connected -- real-time price feed active!")
+        # Subscribe to XAUUSD via OANDA feed
+        ws.send(json.dumps({"type": "subscribe", "symbol": "OANDA:XAU_USD"}))
 
     def on_error(ws, error):
         global _ws_connected
         _ws_connected = False
-        print(f"WebSocket error: {error}")
+        print(f"Finnhub WebSocket error: {error}")
 
     def on_close(ws, close_status_code, close_msg):
         global _ws_connected
         _ws_connected = False
-        print("WebSocket closed -- will reconnect...")
+        print("Finnhub WebSocket closed -- will reconnect...")
 
     def run_ws():
         global _ws_connected
         while True:
             try:
-                ws_url = f"wss://ws.twelvedata.com/v1/quotes/price?apikey={TWELVEDATA_API_KEY}"
+                ws_url = f"wss://ws.finnhub.io?token={FINNHUB_API_KEY}"
                 wsapp  = ws_lib.WebSocketApp(
                     ws_url,
                     on_open=on_open,
@@ -2073,14 +2078,14 @@ def start_websocket():
                 )
                 wsapp.run_forever(ping_interval=30, ping_timeout=10)
             except Exception as e:
-                print(f"WebSocket run error: {e}")
-            print("Reconnecting WebSocket in 5 seconds...")
+                print(f"Finnhub WebSocket run error: {e}")
+            print("Reconnecting Finnhub WebSocket in 5 seconds...")
             time.sleep(5)
 
     t = threading.Thread(target=run_ws, daemon=True)
     t.start()
-    print("WebSocket thread started -- waiting for connection...")
-    time.sleep(3)  # give ws time to connect
+    print("Finnhub WebSocket thread started -- waiting for connection...")
+    time.sleep(3)
 
 
 def run_loop():
