@@ -549,12 +549,15 @@ def check_conditions(d: dict) -> tuple:
             buy_reasons.append(p)
         buy_data["candle_pattern"] = cp["bullish_patterns"]
 
+    if cp["inside_bar"] and (structure == "bullish" or structure == "bearish"):
+        buy_score += 1
+        buy_reasons.append("Inside Bar at key level")
     if cp["double_bottom"]:
         buy_score += 1
         buy_reasons.append("Double Bottom pattern confirmed")
         buy_data["double_bottom"] = True
 
-    if rsi < 38:  # Balanced -- was 35 (too tight) or 40 (too loose)
+    if rsi < 42:  # Loosened to catch more setups
         buy_score += 1
         buy_reasons.append(f"RSI {rsi:.1f} -- oversold")
         buy_data["rsi"] = rsi
@@ -601,7 +604,7 @@ def check_conditions(d: dict) -> tuple:
         sell_reasons.append("Double Top pattern confirmed")
         sell_data["double_top"] = True
 
-    if rsi > 62:  # Balanced -- was 65 (too tight) or 60 (too loose)
+    if rsi > 58:  # Loosened to catch more setups
         sell_score += 1
         sell_reasons.append(f"RSI {rsi:.1f} -- overbought")
         sell_data["rsi"] = rsi
