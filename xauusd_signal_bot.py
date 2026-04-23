@@ -6,6 +6,8 @@
 import os
 import json
 import sys
+import time
+import threading
 import requests
 from datetime import datetime, date, timezone
 
@@ -1385,7 +1387,6 @@ def main():
 
 # ── Entry point ────────────────────────────────────────────────────────────────
 
-import time
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  HIGH IMPACT NEWS BLACKOUT FILTER
