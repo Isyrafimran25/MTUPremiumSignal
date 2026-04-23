@@ -576,7 +576,7 @@ def check_conditions(d: dict) -> tuple:
             buy_reasons.append(p)
         buy_data["candle_pattern"] = cp["bullish_patterns"]
 
-    if cp["inside_bar"] and (structure == "bullish" or structure == "bearish"):
+    if cp["inside_bar"]:  # Inside bar always scores +1
         buy_score += 1
         buy_reasons.append("Inside Bar at key level")
     if cp["double_bottom"]:
@@ -584,7 +584,7 @@ def check_conditions(d: dict) -> tuple:
         buy_reasons.append("Double Bottom pattern confirmed")
         buy_data["double_bottom"] = True
 
-    if rsi < 42:  # Loosened to catch more setups
+    if rsi < 45:  # Wider oversold zone
         buy_score += 1
         buy_reasons.append(f"RSI {rsi:.1f} -- oversold")
         buy_data["rsi"] = rsi
@@ -631,7 +631,7 @@ def check_conditions(d: dict) -> tuple:
         sell_reasons.append("Double Top pattern confirmed")
         sell_data["double_top"] = True
 
-    if rsi > 58:  # Loosened to catch more setups
+    if rsi > 55:  # Wider overbought zone
         sell_score += 1
         sell_reasons.append(f"RSI {rsi:.1f} -- overbought")
         sell_data["rsi"] = rsi
@@ -648,7 +648,7 @@ def check_conditions(d: dict) -> tuple:
         sell_data["macd"] = "bearish"
 
     # ── Pick winner ───────────────────────────────────────────────────────────
-    MIN_SCORE = 4  # Balanced -- quality + frequency
+    MIN_SCORE = 3  # Lowered -- structure+EMA is enough for a signal
 
     if buy_score >= sell_score and buy_score >= MIN_SCORE:
         confidence = "HIGH" if buy_score >= 7 else "MEDIUM"
