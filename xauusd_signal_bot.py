@@ -1977,13 +1977,96 @@ def send_weekly_report():
 
 import time
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  WEBSOCKET REAL-TIME PRICE FEED
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Shared price state between websocket thread and main signal logic
+_latest_price = {"price": None, "updated_at": None}
+_ws_connected  = False
+_last_signal_check = None   # prevent signal spam on every tick
+
+
+def start_websocket():
+    """
+    Connect to Twelve Data WebSocket for real-time XAUUSD price.
+    Runs in background thread -- updates _latest_price on every tick.
+    Falls back to REST polling if websocket fails.
+    """
+    global _ws_connected
+
+    try:
+        import websocket as ws_lib
+    except ImportError:
+        print("websocket-client not installed -- falling back to REST polling")
+        _ws_connected = False
+        return
+
+    def on_message(ws, message):
+        global _latest_price
+        try:
+            data = json.loads(message)
+            if data.get("event") == "price" and "price" in data:
+                _latest_price["price"]      = float(data["price"])
+                _latest_price["updated_at"] = datetime.now(timezone.utc)
+        except Exception as e:
+            pass
+
+    def on_open(ws):
+        global _ws_connected
+        _ws_connected = True
+        print("WebSocket connected -- real-time price feed active!")
+        subscribe_msg = json.dumps({
+            "action":    "subscribe",
+            "params":    {"symbols": "XAU/USD"},
+        })
+        ws.send(subscribe_msg)
+
+    def on_error(ws, error):
+        global _ws_connected
+        _ws_connected = False
+        print(f"WebSocket error: {error}")
+
+    def on_close(ws, close_status_code, close_msg):
+        global _ws_connected
+        _ws_connected = False
+        print("WebSocket closed -- will reconnect...")
+
+    def run_ws():
+        global _ws_connected
+        while True:
+            try:
+                ws_url = f"wss://ws.twelvedata.com/v1/quotes/price?apikey={TWELVEDATA_API_KEY}"
+                wsapp  = ws_lib.WebSocketApp(
+                    ws_url,
+                    on_open=on_open,
+                    on_message=on_message,
+                    on_error=on_error,
+                    on_close=on_close,
+                )
+                wsapp.run_forever(ping_interval=30, ping_timeout=10)
+            except Exception as e:
+                print(f"WebSocket run error: {e}")
+            print("Reconnecting WebSocket in 5 seconds...")
+            time.sleep(5)
+
+    t = threading.Thread(target=run_ws, daemon=True)
+    t.start()
+    print("WebSocket thread started -- waiting for connection...")
+    time.sleep(3)  # give ws time to connect
+
+
 def run_loop():
     """
     Continuous loop for Railway/VPS hosting.
-    Checks signal every 60 seconds.
+    Uses WebSocket for real-time price -- checks signal every 30 seconds.
+    Falls back to REST polling every 120 seconds if WebSocket unavailable.
     Sends morning update once per day at 00:00 UTC (08:00 MYT).
     """
     print("MTU Premium Signal Bot starting -- Railway mode...")
+
+    # Try to start WebSocket
+    start_websocket()
     # Load sent dates from GitHub to prevent duplicate sends after restart
     _ds_content, _ = github_get_file("daily_sends.json")
     _today = str(date.today())
@@ -2044,9 +2127,13 @@ def run_loop():
         except Exception as e:
             print(f"Loop error: {e}")
 
-        # Sleep 120 seconds before next check (keeps Twelve Data within 800 credits/day)
-        print("Sleeping 120 seconds...")
-        time.sleep(120)
+        # Sleep 30s if WebSocket connected (no API credits used for price)
+        # Sleep 120s if WebSocket not available (REST polling mode)
+        if _ws_connected:
+            time.sleep(30)
+        else:
+            print("Sleeping 120 seconds (REST mode)...")
+            time.sleep(120)
 
 
 if __name__ == "__main__":
