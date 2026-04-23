@@ -1174,10 +1174,12 @@ def check_and_update_signals():
             sig["sl_hit"] = True
             sig["status"] = "sl_hit"
             updated = True
-            # If TP1 already hit -- price pulled back after running profit
-            # Skip SL notification, just silently close and focus on next signal
-            if sig.get("tp1_hit"):
-                print(f"Signal {sig['id']}: Price pulled back after TP1 -- closing silently, no SL alert.")
+            # If price ran +40 pips profit before SL -- silent close, move on
+            # Skip SL notification so channel stays positive
+            max_profit_pips = round(sig.get("last_notified_profit", 0) * 10, 1)
+            had_good_run = max_profit_pips >= 40 or sig.get("tp1_hit")
+            if had_good_run:
+                print(f"Signal {sig['id']}: Closed after +{max_profit_pips} pips run -- silent close, moving on.")
             else:
                 # Fresh SL hit with no prior TP -- notify channel
                 print(f"Signal {sig['id']}: SL hit at {price:.2f}")
