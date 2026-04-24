@@ -954,7 +954,13 @@ def main():
     try:
         data = fetch_market_data()
     except ValueError as e:
-        print(f"Data fetch error: {e}"); return
+        err = str(e)
+        if "run out of API credits" in err or "credits" in err.lower():
+            print("API credits exhausted -- sleeping 10 minutes to save credits")
+            time.sleep(600)  # Sleep 10 min, dont keep retrying
+        else:
+            print(f"Data fetch error: {e}")
+        return
     except Exception as e:
         print(f"Network error: {e}"); return
 
@@ -1350,7 +1356,13 @@ def main():
     try:
         data = fetch_market_data()
     except ValueError as e:
-        print(f"Data fetch error: {e}"); return
+        err = str(e)
+        if "run out of API credits" in err or "credits" in err.lower():
+            print("API credits exhausted -- sleeping 10 minutes to save credits")
+            time.sleep(600)  # Sleep 10 min, dont keep retrying
+        else:
+            print(f"Data fetch error: {e}")
+        return
     except Exception as e:
         print(f"Network error: {e}"); return
 
