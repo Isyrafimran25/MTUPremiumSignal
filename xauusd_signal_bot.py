@@ -741,7 +741,6 @@ def generate_signal_message(signal_type: str, d: dict, confidence: str,
     tp3   = levels["tp3"]
     risk  = levels["risk"]
 
-    risk = actual_risk
     rr1  = round(abs(tp1 - entry) / risk, 1) if risk > 0 else 0.8
     rr2  = round(abs(tp2 - entry) / risk, 1) if risk > 0 else 1.5
     rr3  = round(abs(tp3 - entry) / risk, 1) if risk > 0 else 2.5
