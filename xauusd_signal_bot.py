@@ -519,9 +519,10 @@ def detect_candle_patterns(candles: list, atr: float) -> dict:
         "bullish_pin":       bullish_pin,
         "bearish_pin":       bearish_pin,
         "double_bottom":     double_bottom,
+        "double_bottom":     double_bottom,
         "double_top":        double_top,
+        "inside_bar":        inside_bar,
     }
-
 
 def check_conditions(d: dict) -> tuple:
     candles = d["candles"]
@@ -576,7 +577,7 @@ def check_conditions(d: dict) -> tuple:
             buy_reasons.append(p)
         buy_data["candle_pattern"] = cp["bullish_patterns"]
 
-    if cp["inside_bar"]:  # Inside bar always scores +1
+    if cp.get("inside_bar", False):  # Inside bar always scores +1
         buy_score += 1
         buy_reasons.append("Inside Bar at key level")
     if cp["double_bottom"]:
