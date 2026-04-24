@@ -207,10 +207,10 @@
     "tp3": 4711.26,
     "confidence": "MEDIUM",
     "session": "London",
-    "status": "tp1_hit",
+    "status": "closed",
     "tp1_hit": true,
-    "tp2_hit": false,
-    "tp3_hit": false,
+    "tp2_hit": true,
+    "tp3_hit": true,
     "sl_hit": false,
     "last_notified_profit": 6.75,
     "opened_utc": "2026-04-24T12:49:53.319392+00:00"
