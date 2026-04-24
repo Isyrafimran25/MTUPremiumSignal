@@ -2167,9 +2167,9 @@ def run_loop():
             interval = min(interval, 30)  # WebSocket -- faster
         print(f"Sleeping {interval} seconds...")
         time.sleep(interval)
-        time.sleep(interval)
 
 
+if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "morning":
         morning_update()
     elif len(sys.argv) > 1 and sys.argv[1] == "once":
