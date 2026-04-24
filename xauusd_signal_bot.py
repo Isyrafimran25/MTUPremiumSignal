@@ -1073,7 +1073,18 @@ def register_signal(signal_type: str, entry: float, sl: float,
 
 
 def fetch_current_price() -> float:
-    """Quick single-endpoint price fetch for the tracker."""
+    """Get current price -- uses Finnhub WebSocket cache (0 API credits!)
+    Falls back to Twelve Data only if WebSocket price is stale (>60s old)."""
+    # Use WebSocket price if fresh (updated within last 60 seconds)
+    ws_price = _latest_price.get("price")
+    ws_updated = _latest_price.get("updated_at")
+    if ws_price and ws_updated:
+        age = (datetime.now(timezone.utc) - ws_updated).total_seconds()
+        if age < 60:
+            return float(ws_price)  # Free! No API credits used
+
+    # Fallback to Twelve Data only if WebSocket is stale
+    print("WebSocket price stale -- using Twelve Data for tracker")
     url = "https://api.twelvedata.com/price"
     r = requests.get(url, params={
         "symbol": SYMBOL,
