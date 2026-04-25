@@ -8,6 +8,7 @@ import json
 import sys
 import time
 import threading
+import random
 import requests
 from datetime import datetime, date, timezone
 
@@ -767,22 +768,25 @@ def generate_signal_message(signal_type: str, d: dict, confidence: str,
         z = sd["nearest_supply"]
         zone_note = f"Nearest supply zone sits at {z[0]}-{z[1]}."
 
-    prompt = f"""You are a casual but sharp XAUUSD signal provider for MTU Premium Telegram channel.
+    prompt = f"""You are a casual Malaysian trader sharing signals with friends on Telegram.
+Write in casual Bahasa Melayu/Manglish style -- short, hype, personal.
+Use style like: "Setup cantik ni!", "Jom masuk!", "Zone power ni!", "Fly terus!"
 
-Write a short, casual signal message using EXACTLY this template. Do NOT change any numbers:
+Write signal message using EXACTLY these numbers. Do NOT change any numbers:
 
-{confidence_emoji} {signal_type} XAUUSD NOW
+⚡ {signal_type} XAUUSD
 
-📍 {entry}
-❌ SL {sl} (-{sl_pips} pips)
-✅ TP1 {tp1} → TP2 {tp2} → TP3 {tp3}
+Zone : {entry}
+SL : Layer ({sl})
+TP : {tp1} / {tp2} / {tp3}
 
-R:R 1:{rr3} | {confidence} | {session}
+[Write 1-2 short casual sentences in Manglish about why this setup is good.
+Use RSI={d['rsi']:.1f} and {zone_note if zone_note else 'key level'} as context.
+Sound excited but natural -- like KimyFM style. End with 1-2 fire/rocket emojis.]
 
-[Write 1 short casual sentence (max 10 words) about why this setup looks good. Use: RSI={d['rsi']:.1f}, structure={zone_note if zone_note else 'key levels aligning'}. Sound like a trader talking to friends, not a robot. End with one emoji.]
-
-⚠️ Not financial advice.
-🔔 MTU Premium
+Jom tekan okay! 👌
+⚠️ Bukan nasihat kewangan.
+🔔 MTU Premium Signal Gold
 
 Output ONLY the message. No preamble or extra text."""
 
@@ -1129,38 +1133,74 @@ def format_tracker_message(sig: dict, event: str, current_price: float) -> str:
     pl_str = sign + str(int(floating) if floating == int(floating) else floating)
     direction_emoji = "📈" if direction == "BUY" else "📉"
 
+    tp1_lines = [
+        "Alih SL ke BE sekarang! Jangan tamak 😄",
+        "Collect separuh, biar baki lagi fly! 🚀",
+        "TP1 dah kena! Move SL jaga modal! 💪",
+        "Naik dah! Gerak SL ke entry, relax! 😎",
+        "Cantik! SL ke BE, tunggu TP2 pulak! 🔥",
+    ]
+    tp2_lines = [
+        "Jom collect separuh, biar baki fly ke TP3! 🚀",
+        "TP2 kena! Collect dulu, trail SL! 💰",
+        "Dah dapat, biar baki kejar TP3! 🎯",
+        "Santai collect separuh, TP3 tengah tunggu! 😄",
+        "Fly lagi! Collect, trail, biar lagi naik! 🔥",
+    ]
+    tp3_lines = [
+        "Santai je collect semua! GG semua! 🥇🎉",
+        "FULL CLOSE! Dah dapat semua bro! 🔥🎉",
+        "Habis dah! Profit masuk, next setup! 🥇",
+        "Clean sweep! Semua TP kena! GG! 🎯🎉",
+        "Profit terkumpul! Terima kasih semua! 🥇🔥",
+    ]
+    sl_lines = [
+        "Takpe, protect modal dulu. Next setup coming! 💪",
+        "Cut losses, next one lagi cantik! 💪",
+        "SL kena, takpe. Jaga modal, next! 🔄",
+        "Market tak ikut, takpe ada next setup! 💪",
+        "Rilek, setiap trader ada SL. Next! 🔄",
+    ]
+    run_lines = [
+        "Jom collect layer atas dulu! 💰",
+        "Fly terus! Collect sikit-sikit! 🚀",
+        "Profit running! Jaga jaga jangan tamak! 😄",
+        "Setup cantik ni! Collect layer jom! 💰",
+        "Naik laju! Collect atas, biar bawah lagi! 🔥",
+    ]
+
     if event == "tp1_hit":
-        msg  = f"✅ TP1 HIT! {direction} {direction_emoji}\n"
-        msg += f"📍 {current_price:.2f} | Entry was {entry}\n"
-        msg += f"Move SL to breakeven now! 💪\n"
-        msg += f"TP2 {tp2} → TP3 {tp3} still running...\n"
-        msg += f"🔔 MTU Premium"
+        msg  = f"✅ TP1 KENA! {direction} {direction_emoji}\n"
+        msg += f"📍 {current_price:.2f} | Entry: {entry}\n"
+        msg += random.choice(tp1_lines) + "\n"
+        msg += f"TP2 {tp2} → TP3 {tp3} tengah fly lagi...\n"
+        msg += f"🔔 MTU Premium Signal Gold"
 
     elif event == "tp2_hit":
-        msg  = f"✅✅ TP2 HIT! {direction} {direction_emoji}\n"
-        msg += f"📍 {current_price:.2f} | Entry was {entry}\n"
-        msg += f"Close 50%, trail SL. Let TP3 run! 🚀\n"
+        msg  = f"✅✅ TP2 KENA! {direction} {direction_emoji}\n"
+        msg += f"📍 {current_price:.2f} | Entry: {entry}\n"
+        msg += random.choice(tp2_lines) + "\n"
         msg += f"TP3 target: {tp3}\n"
-        msg += f"🔔 MTU Premium"
+        msg += f"🔔 MTU Premium Signal Gold"
 
     elif event == "tp3_hit":
-        msg  = f"🎯 TP3 HIT! FULL CLOSE! {direction} {direction_emoji}\n"
-        msg += f"📍 {current_price:.2f} | Entry was {entry}\n"
-        msg += f"Clean sweep! Close everything. GG! 🥇\n"
-        msg += f"🔔 MTU Premium"
+        msg  = f"🔥 TP3 KENA! FULL CLOSE BROOO! {direction} {direction_emoji}\n"
+        msg += f"📍 {current_price:.2f} | Entry: {entry}\n"
+        msg += random.choice(tp3_lines) + "\n"
+        msg += f"🔔 MTU Premium Signal Gold"
 
     elif event == "sl_hit":
-        msg  = f"🛑 SL HIT. {direction} {direction_emoji}\n"
-        msg += f"📍 {current_price:.2f} | Entry was {entry}\n"
-        msg += f"Cut losses, protect the account. Next one! 💪\n"
-        msg += f"🔔 MTU Premium"
+        msg  = f"🛑 SL Kena. {direction} {direction_emoji}\n"
+        msg += f"📍 {current_price:.2f} | Entry: {entry}\n"
+        msg += random.choice(sl_lines) + "\n"
+        msg += f"🔔 MTU Premium Signal Gold"
 
     elif event == "running_profit":
-        msg  = f"📊 UPDATE {direction} {direction_emoji}\n"
+        msg  = f"RUNNING +{pl_str} PIPS {direction_emoji}\n"
         msg += f"📍 Now: {current_price:.2f} | Entry: {entry}\n"
-        msg += f"Running Profit: {pl_str} pips 💰\\n"
+        msg += random.choice(run_lines) + "\n"
         msg += f"SL: {sl} | TP1: {tp1} | TP2: {tp2} | TP3: {tp3}\n"
-        msg += f"🔔 MTU Premium"
+        msg += f"🔔 MTU Premium Signal Gold"
 
     else:
         return ""
