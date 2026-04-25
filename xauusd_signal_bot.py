@@ -1136,13 +1136,13 @@ def format_tracker_message(sig: dict, event: str, current_price: float) -> str:
     tp1_lines = [
         "Alih SL ke BE sekarang! Jangan tamak 😄",
         "Collect separuh, biar baki lagi fly! 🚀",
-        "TP1 dah kena! Move SL jaga modal! 💪",
+        "TP1 HIT! Move SL jaga modal! 💪",
         "Naik dah! Gerak SL ke entry, relax! 😎",
         "Cantik! SL ke BE, tunggu TP2 pulak! 🔥",
     ]
     tp2_lines = [
         "Jom collect separuh, biar baki fly ke TP3! 🚀",
-        "TP2 kena! Collect dulu, trail SL! 💰",
+        "TP2 HIT! Collect dulu, trail SL! 💰",
         "Dah dapat, biar baki kejar TP3! 🎯",
         "Santai collect separuh, TP3 tengah tunggu! 😄",
         "Fly lagi! Collect, trail, biar lagi naik! 🔥",
@@ -1157,7 +1157,7 @@ def format_tracker_message(sig: dict, event: str, current_price: float) -> str:
     sl_lines = [
         "Takpe, protect modal dulu. Next setup coming! 💪",
         "Cut losses, next one lagi cantik! 💪",
-        "SL kena, takpe. Jaga modal, next! 🔄",
+        "SL HIT, takpe. Jaga modal, next! 🔄",
         "Market tak ikut, takpe ada next setup! 💪",
         "Rilek, setiap trader ada SL. Next! 🔄",
     ]
@@ -1170,27 +1170,27 @@ def format_tracker_message(sig: dict, event: str, current_price: float) -> str:
     ]
 
     if event == "tp1_hit":
-        msg  = f"✅ TP1 KENA! {direction} {direction_emoji}\n"
+        msg  = f"✅ TP1 HIT! {direction} {direction_emoji}\n"
         msg += f"📍 {current_price:.2f} | Entry: {entry}\n"
         msg += random.choice(tp1_lines) + "\n"
         msg += f"TP2 {tp2} → TP3 {tp3} tengah fly lagi...\n"
         msg += f"🔔 MTU Premium Signal Gold"
 
     elif event == "tp2_hit":
-        msg  = f"✅✅ TP2 KENA! {direction} {direction_emoji}\n"
+        msg  = f"✅✅ TP2 HIT! {direction} {direction_emoji}\n"
         msg += f"📍 {current_price:.2f} | Entry: {entry}\n"
         msg += random.choice(tp2_lines) + "\n"
         msg += f"TP3 target: {tp3}\n"
         msg += f"🔔 MTU Premium Signal Gold"
 
     elif event == "tp3_hit":
-        msg  = f"🔥 TP3 KENA! FULL CLOSE BROOO! {direction} {direction_emoji}\n"
+        msg  = f"🔥 TP3 HIT! FULL CLOSE BROOO! {direction} {direction_emoji}\n"
         msg += f"📍 {current_price:.2f} | Entry: {entry}\n"
         msg += random.choice(tp3_lines) + "\n"
         msg += f"🔔 MTU Premium Signal Gold"
 
     elif event == "sl_hit":
-        msg  = f"🛑 SL Kena. {direction} {direction_emoji}\n"
+        msg  = f"🛑 SL HIT. {direction} {direction_emoji}\n"
         msg += f"📍 {current_price:.2f} | Entry: {entry}\n"
         msg += random.choice(sl_lines) + "\n"
         msg += f"🔔 MTU Premium Signal Gold"
