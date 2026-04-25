@@ -2159,13 +2159,13 @@ def run_loop():
                     "update daily sends")
 
             # ── US Session fundamental update at 13:00 UTC (21:00 MYT) ───────
-            if now_utc.hour == 13 and now_utc.minute < 2 and fundamental_sent_date != today:
+            if now_utc.hour == 13 and now_utc.minute < 2 and fundamental_sent_date != today and now_utc.weekday() < 5:
                 print("Sending US Session fundamental update...")
                 us_session_fundamental()
                 fundamental_sent_date = today
 
             # -- Daily report at 18:00 UTC (2AM MYT) -- end of trading day --
-            if now_utc.hour == 18 and now_utc.minute < 2 and daily_report_sent_date != today:
+            if now_utc.hour == 18 and now_utc.minute < 2 and daily_report_sent_date != today and now_utc.weekday() < 5:
                 print("Sending daily performance report...")
                 send_daily_report()
                 daily_report_sent_date = today
