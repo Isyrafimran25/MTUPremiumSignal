@@ -376,5 +376,23 @@
     "sl_hit": false,
     "last_notified_profit": 11.95,
     "opened_utc": "2026-04-27T13:35:14.812617+00:00"
+  },
+  {
+    "id": "202604271530",
+    "type": "BUY",
+    "entry": 4679.02688,
+    "sl": 4674.03,
+    "tp1": 4684.03,
+    "tp2": 4689.03,
+    "tp3": 4697.24,
+    "confidence": "MEDIUM",
+    "session": "London / New York",
+    "status": "open",
+    "tp1_hit": false,
+    "tp2_hit": false,
+    "tp3_hit": false,
+    "sl_hit": false,
+    "last_notified_profit": 0.0,
+    "opened_utc": "2026-04-27T15:30:47.409567+00:00"
   }
 ]
