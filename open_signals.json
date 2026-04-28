@@ -549,12 +549,12 @@
     "tp3": 4616.6,
     "confidence": "MEDIUM",
     "session": "London",
-    "status": "open",
-    "tp1_hit": false,
+    "status": "tp1_hit",
+    "tp1_hit": true,
     "tp2_hit": false,
     "tp3_hit": false,
     "sl_hit": false,
-    "last_notified_profit": 0.0,
+    "last_notified_profit": 5.06,
     "opened_utc": "2026-04-28T12:48:03.046308+00:00"
   }
 ]
