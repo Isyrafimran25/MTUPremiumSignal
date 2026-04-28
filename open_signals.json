@@ -477,11 +477,11 @@
     "tp3": 4669.9,
     "confidence": "MEDIUM",
     "session": "Asia",
-    "status": "open",
+    "status": "sl_hit",
     "tp1_hit": false,
     "tp2_hit": false,
     "tp3_hit": false,
-    "sl_hit": false,
+    "sl_hit": true,
     "last_notified_profit": 0.0,
     "opened_utc": "2026-04-28T06:46:33.106676+00:00"
   }
