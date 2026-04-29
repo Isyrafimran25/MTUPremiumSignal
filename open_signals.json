@@ -693,11 +693,11 @@
     "tp3": 4581.73,
     "confidence": "MEDIUM",
     "session": "London",
-    "status": "tp2_hit",
+    "status": "sl_hit",
     "tp1_hit": true,
     "tp2_hit": true,
     "tp3_hit": false,
-    "sl_hit": false,
+    "sl_hit": true,
     "last_notified_profit": 18.77,
     "opened_utc": "2026-04-29T10:01:44.429365+00:00"
   },
