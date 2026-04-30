@@ -747,10 +747,10 @@
     "tp3": 4568.33,
     "confidence": "MEDIUM",
     "session": "London / New York",
-    "status": "tp2_hit",
+    "status": "closed",
     "tp1_hit": true,
     "tp2_hit": true,
-    "tp3_hit": false,
+    "tp3_hit": true,
     "sl_hit": false,
     "last_notified_profit": 29.56,
     "opened_utc": "2026-04-29T14:47:08.931180+00:00"
