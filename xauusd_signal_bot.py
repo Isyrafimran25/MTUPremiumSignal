@@ -2226,8 +2226,8 @@ def run_loop():
         # Smart sleep -- longer during quiet periods to save API credits
         now_h    = datetime.now(timezone.utc).hour
         interval = get_fetch_interval(now_h)
-        if _ws_connected:
-            interval = min(interval, 30)  # WebSocket -- faster
+        # NOTE: WebSocket only saves credits for TRACKER price checks
+        # fetch_market_data() still costs 1 API credit -- keep smart interval
         print(f"Sleeping {interval} seconds...")
         time.sleep(interval)
 
