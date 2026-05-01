@@ -927,12 +927,12 @@
     "tp3": 4638.69,
     "confidence": "MEDIUM",
     "session": "London / New York",
-    "status": "open",
-    "tp1_hit": false,
+    "status": "tp1_hit",
+    "tp1_hit": true,
     "tp2_hit": false,
     "tp3_hit": false,
     "sl_hit": false,
-    "last_notified_profit": 0.0,
+    "last_notified_profit": 9.57,
     "opened_utc": "2026-05-01T15:08:43.142794+00:00"
   }
 ]
