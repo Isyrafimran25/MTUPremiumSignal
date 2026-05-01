@@ -909,10 +909,10 @@
     "tp3": 4611.78,
     "confidence": "MEDIUM",
     "session": "London / New York",
-    "status": "tp1_hit",
+    "status": "closed",
     "tp1_hit": true,
-    "tp2_hit": false,
-    "tp3_hit": false,
+    "tp2_hit": true,
+    "tp3_hit": true,
     "sl_hit": false,
     "last_notified_profit": 8.59,
     "opened_utc": "2026-05-01T13:36:11.161299+00:00"
