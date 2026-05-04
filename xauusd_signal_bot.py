@@ -287,9 +287,35 @@ def compute_macd(closes: list, fast=12, slow=26, signal=9):
     return macd_line, signal_line
 
 
+
+def get_h1_trend() -> str:
+    """Fetch H1 candles to determine higher timeframe bias.
+    Returns: bullish, bearish, or neutral. Costs 1 API call.
+    """
+    try:
+        data    = td_get("time_series", interval="1h", outputsize=20)
+        candles = data.get("values", [])
+        if len(candles) < 10:
+            return "neutral"
+        closes     = [float(c["close"]) for c in candles[:10]]
+        avg_recent = sum(closes[:5]) / 5
+        avg_older  = sum(closes[5:]) / 5
+        diff       = avg_recent - avg_older
+        atr_h1     = abs(float(candles[0]["high"]) - float(candles[0]["low"]))
+        if diff > atr_h1 * 0.3:
+            return "bullish"
+        elif diff < -atr_h1 * 0.3:
+            return "bearish"
+        else:
+            return "neutral"
+    except Exception as e:
+        print(f"H1 trend fetch failed: {e}")
+        return "neutral"
+
+
 def fetch_market_data() -> dict:
     """Single API call -- compute all indicators locally. Saves 5 credits per run."""
-    print("  -> time_series (1 API call only)")
+    print("  -> time_series + H1 trend (2 API calls)")
     price_data = td_get("time_series", outputsize=60)
 
     # Build candles list -- newest first (as returned by API)
@@ -330,6 +356,10 @@ def fetch_market_data() -> dict:
 
     latest = candles[0]  # most recent (newest first)
 
+    # Fetch H1 trend for higher timeframe bias
+    h1_trend = get_h1_trend()
+    print(f"H1 Trend: {h1_trend.upper()}")
+
     return {
         "candles":       candles,
         "price":         latest["close"],
@@ -350,6 +380,7 @@ def fetch_market_data() -> dict:
         "atr":           atr_val,
         "avg_atr":       avg_atr,
         "timestamp":     latest["dt"],
+        "h1_trend":      h1_trend,
     }
 
 
@@ -650,7 +681,18 @@ def check_conditions(d: dict) -> tuple:
         sell_data["macd"] = "bearish"
 
     # ── Pick winner ───────────────────────────────────────────────────────────
-    MIN_SCORE = 3  # Lowered -- structure+EMA is enough for a signal
+    # H1 trend filter -- only trade in direction of higher timeframe
+    # If H1 bearish -> block BUY signals (market trending down)
+    # If H1 bullish -> block SELL signals (market trending up)
+    h1_trend = analysis.get("h1_trend", "neutral") if isinstance(analysis, dict) else "neutral"
+    if h1_trend == "bearish" and buy_score > sell_score:
+        print(f"H1 BEARISH -- blocking BUY (score {buy_score}). Only SELL allowed.")
+        buy_score = 0
+    elif h1_trend == "bullish" and sell_score >= buy_score:
+        print(f"H1 BULLISH -- blocking SELL (score {sell_score}). Only BUY allowed.")
+        sell_score = 0
+
+    MIN_SCORE = 4  # Raised back -- need more confluence for better win rate
 
     if buy_score >= sell_score and buy_score >= MIN_SCORE:
         confidence = "HIGH" if buy_score >= 7 else "MEDIUM"
@@ -715,6 +757,10 @@ def calculate_levels(signal_type: str, price: float, atr: float, sr: dict) -> di
 
     if abs(tp2 - tp1) < MIN_TP_GAP or abs(tp3 - tp2) < MIN_TP_GAP:
         return {"blocked": True, "reason": "TP levels too close -- ATR too small"}
+
+    # Fetch H1 trend for higher timeframe bias
+    h1_trend = get_h1_trend()
+    print(f"H1 Trend: {h1_trend.upper()}")
 
     return {
         "blocked": False, "entry": entry, "sl": sl,
@@ -953,6 +999,20 @@ def main():
     if not cooldown_ok(state):
         print(f"Cooldown aktif -- {COOLDOWN_MINUTES} minit antara isyarat.")
         return
+
+    # Consecutive SL protection -- if 3 SL in a row, pause 2 hours
+    recent_signals = load_open_signals()
+    recent_closed  = [s for s in recent_signals[-5:] if s.get("status") == "sl_hit"]
+    if len(recent_closed) >= 3:
+        last_sl_time = recent_closed[-1].get("opened_utc", "")
+        try:
+            last_sl_dt = datetime.fromisoformat(last_sl_time)
+            mins_since = (now_utc - last_sl_dt).total_seconds() / 60
+            if mins_since < 120:
+                print(f"3 SL berturut-turut -- pause 2 jam, market trending kuat. ({round(mins_since)}min ago)")
+                return
+        except:
+            pass
 
     print("Mengambil data XAUUSD 15-min dari Twelve Data...")
     try:
@@ -1391,6 +1451,20 @@ def main():
     if not cooldown_ok(state):
         print(f"Cooldown aktif -- {COOLDOWN_MINUTES} minit antara isyarat.")
         return
+
+    # Consecutive SL protection -- if 3 SL in a row, pause 2 hours
+    recent_signals = load_open_signals()
+    recent_closed  = [s for s in recent_signals[-5:] if s.get("status") == "sl_hit"]
+    if len(recent_closed) >= 3:
+        last_sl_time = recent_closed[-1].get("opened_utc", "")
+        try:
+            last_sl_dt = datetime.fromisoformat(last_sl_time)
+            mins_since = (now_utc - last_sl_dt).total_seconds() / 60
+            if mins_since < 120:
+                print(f"3 SL berturut-turut -- pause 2 jam, market trending kuat. ({round(mins_since)}min ago)")
+                return
+        except:
+            pass
 
     print("Mengambil data XAUUSD 15-min dari Twelve Data...")
     try:
