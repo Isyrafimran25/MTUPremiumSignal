@@ -1053,12 +1053,12 @@
     "tp3": 4584.0,
     "confidence": "MEDIUM",
     "session": "London",
-    "status": "open",
+    "status": "sl_hit",
     "tp1_hit": false,
     "tp2_hit": false,
     "tp3_hit": false,
-    "sl_hit": false,
+    "sl_hit": true,
     "last_notified_profit": 0.0,
-    "opened_utc": "2026-05-04T10:06:33.712658+00:00"
+    "opened_utc": "2026-05-04T10:06:06.740905+00:00"
   }
 ]
