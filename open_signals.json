@@ -1089,11 +1089,11 @@
     "tp3": 4585.28,
     "confidence": "MEDIUM",
     "session": "London / New York",
-    "status": "open",
+    "status": "sl_hit",
     "tp1_hit": false,
     "tp2_hit": false,
     "tp3_hit": false,
-    "sl_hit": false,
+    "sl_hit": true,
     "last_notified_profit": 0.0,
     "opened_utc": "2026-05-04T13:10:29.391594+00:00"
   }
