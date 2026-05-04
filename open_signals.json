@@ -1035,11 +1035,11 @@
     "tp3": 4594.14,
     "confidence": "MEDIUM",
     "session": "London",
-    "status": "tp1_hit",
+    "status": "sl_hit",
     "tp1_hit": true,
     "tp2_hit": false,
     "tp3_hit": false,
-    "sl_hit": false,
+    "sl_hit": true,
     "last_notified_profit": 6.65,
     "opened_utc": "2026-05-04T08:35:27.256945+00:00"
   }
