@@ -684,7 +684,7 @@ def check_conditions(d: dict) -> tuple:
     # H1 trend filter -- only trade in direction of higher timeframe
     # If H1 bearish -> block BUY signals (market trending down)
     # If H1 bullish -> block SELL signals (market trending up)
-    h1_trend = analysis.get("h1_trend", "neutral") if isinstance(analysis, dict) else "neutral"
+    h1_trend = d.get("h1_trend", "neutral")  # From fetch_market_data
     if h1_trend == "bearish" and buy_score > sell_score:
         print(f"H1 BEARISH -- blocking BUY (score {buy_score}). Only SELL allowed.")
         buy_score = 0
@@ -757,10 +757,6 @@ def calculate_levels(signal_type: str, price: float, atr: float, sr: dict) -> di
 
     if abs(tp2 - tp1) < MIN_TP_GAP or abs(tp3 - tp2) < MIN_TP_GAP:
         return {"blocked": True, "reason": "TP levels too close -- ATR too small"}
-
-    # Fetch H1 trend for higher timeframe bias
-    h1_trend = get_h1_trend()
-    print(f"H1 Trend: {h1_trend.upper()}")
 
     return {
         "blocked": False, "entry": entry, "sl": sl,
