@@ -1269,11 +1269,11 @@
     "tp3": 4727.84,
     "confidence": "MEDIUM",
     "session": "London / New York",
-    "status": "open",
+    "status": "sl_hit",
     "tp1_hit": false,
     "tp2_hit": false,
     "tp3_hit": false,
-    "sl_hit": false,
+    "sl_hit": true,
     "last_notified_profit": 0.0,
     "opened_utc": "2026-05-07T13:50:01.777536+00:00"
   }
