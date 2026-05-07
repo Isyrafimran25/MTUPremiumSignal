@@ -1251,11 +1251,11 @@
     "tp3": 4700.96,
     "confidence": "MEDIUM",
     "session": "London",
-    "status": "open",
+    "status": "sl_hit",
     "tp1_hit": false,
     "tp2_hit": false,
     "tp3_hit": false,
-    "sl_hit": false,
+    "sl_hit": true,
     "last_notified_profit": 4.3,
     "opened_utc": "2026-05-07T09:02:40.567075+00:00"
   }
