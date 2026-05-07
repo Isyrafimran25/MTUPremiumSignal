@@ -1304,30 +1304,6 @@ def check_and_update_signals():
         tp2       = sig["tp2"]
         tp3       = sig["tp3"]
 
-        # ── Check SL hit ──────────────────────────────────────────────────────
-        sl_hit = (direction == "BUY"  and price <= sl) or \
-                 (direction == "SELL" and price >= sl)
-
-        if sl_hit and not sig["sl_hit"]:
-            sig["sl_hit"] = True
-            sig["status"] = "sl_hit"
-            updated = True
-            # If price ran +40 pips profit before SL -- silent close, move on
-            # Skip SL notification so channel stays positive
-            max_profit_pips = round(sig.get("last_notified_profit", 0) * 10, 1)
-            had_good_run = max_profit_pips >= 40 or sig.get("tp1_hit")
-            if had_good_run:
-                print(f"Signal {sig['id']}: Closed after +{max_profit_pips} pips run -- silent close, moving on.")
-            else:
-                # Fresh SL hit with no prior TP -- notify channel
-                print(f"Signal {sig['id']}: SL hit at {price:.2f}")
-                msg = format_tracker_message(sig, "sl_hit", price)
-                try:
-                    send_to_telegram(msg)
-                except Exception as e:
-                    print(f"Telegram failed: {e}")
-            continue   # no more checks needed
-
         # ── Check TP3 hit ─────────────────────────────────────────────────────
         tp3_hit = (direction == "BUY"  and price >= tp3) or \
                   (direction == "SELL" and price <= tp3)
@@ -1408,6 +1384,31 @@ def check_and_update_signals():
                 print(f"Telegram failed: {e}")
             sig["last_notified_profit"] = floating
             updated = True
+
+        # -- Check SL hit (last -- only if no TP hit) --
+        sl_hit = (direction == "BUY"  and price <= sl) or \
+                 (direction == "SELL" and price >= sl)
+
+        if sl_hit and not sig["sl_hit"]:
+            sig["sl_hit"] = True
+            sig["status"] = "sl_hit"
+            updated = True
+            # If price ran +40 pips profit before SL -- silent close, move on
+            # Skip SL notification so channel stays positive
+            max_profit_pips = round(sig.get("last_notified_profit", 0) * 10, 1)
+            had_good_run = max_profit_pips >= 40 or sig.get("tp1_hit")
+            if had_good_run:
+                print(f"Signal {sig['id']}: Closed after +{max_profit_pips} pips run -- silent close, moving on.")
+            else:
+                # Fresh SL hit with no prior TP -- notify channel
+                print(f"Signal {sig['id']}: SL hit at {price:.2f}")
+                msg = format_tracker_message(sig, "sl_hit", price)
+                try:
+                    send_to_telegram(msg)
+                except Exception as e:
+                    print(f"Telegram failed: {e}")
+            continue   # no more checks needed
+
 
     if updated:
         save_open_signals(signals)
