@@ -1701,12 +1701,12 @@
     "tp3": 4701.14,
     "confidence": "MEDIUM",
     "session": "London / New York",
-    "status": "open",
-    "tp1_hit": false,
+    "status": "tp1_hit",
+    "tp1_hit": true,
     "tp2_hit": false,
     "tp3_hit": false,
     "sl_hit": false,
-    "last_notified_profit": 0.0,
+    "last_notified_profit": 6.81,
     "opened_utc": "2026-05-13T15:11:59.196273+00:00"
   }
 ]
