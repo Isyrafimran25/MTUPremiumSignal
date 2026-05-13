@@ -1719,12 +1719,12 @@
     "tp3": 4704.67,
     "confidence": "MEDIUM",
     "session": "New York",
-    "status": "open",
-    "tp1_hit": false,
+    "status": "tp1_hit",
+    "tp1_hit": true,
     "tp2_hit": false,
     "tp3_hit": false,
     "sl_hit": false,
-    "last_notified_profit": 0.0,
+    "last_notified_profit": 3.01,
     "opened_utc": "2026-05-13T16:55:56.868903+00:00"
   }
 ]
