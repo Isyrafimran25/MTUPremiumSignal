@@ -1389,9 +1389,11 @@ def check_and_update_signals():
         sl_hit = (direction == "BUY"  and price <= sl) or \
                  (direction == "SELL" and price >= sl)
 
-        if sl_hit and not sig["sl_hit"]:
+        if sl_hit and not sig["sl_hit"] and not sig.get("tp1_hit") and not sig.get("tp2_hit"):
             sig["sl_hit"] = True
-            sig["status"] = "sl_hit"
+            # Only override status if no TP was previously hit
+            if not sig.get("tp2_hit") and not sig.get("tp1_hit"):
+                sig["status"] = "sl_hit"
             updated = True
             # If price ran +40 pips profit before SL -- silent close, move on
             # Skip SL notification so channel stays positive
