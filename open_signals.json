@@ -1737,11 +1737,11 @@
     "tp3": 4688.73,
     "confidence": "MEDIUM",
     "session": "Asia",
-    "status": "open",
+    "status": "sl_hit",
     "tp1_hit": false,
     "tp2_hit": false,
     "tp3_hit": false,
-    "sl_hit": false,
+    "sl_hit": true,
     "last_notified_profit": 0.0,
     "opened_utc": "2026-05-14T00:08:09.581916+00:00"
   }
