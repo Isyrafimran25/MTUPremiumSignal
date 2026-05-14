@@ -1762,5 +1762,23 @@
     "sl_hit": false,
     "last_notified_profit": 10.51,
     "opened_utc": "2026-05-14T02:08:44.663778+00:00"
+  },
+  {
+    "id": "202605140428",
+    "type": "SELL",
+    "entry": 4697.51892,
+    "sl": 4702.52,
+    "tp1": 4692.52,
+    "tp2": 4687.52,
+    "tp3": 4682.52,
+    "confidence": "MEDIUM",
+    "session": "Asia",
+    "status": "open",
+    "tp1_hit": false,
+    "tp2_hit": false,
+    "tp3_hit": false,
+    "sl_hit": false,
+    "last_notified_profit": 0.0,
+    "opened_utc": "2026-05-14T04:28:04.025628+00:00"
   }
 ]
