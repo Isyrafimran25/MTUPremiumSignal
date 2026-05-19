@@ -15,10 +15,8 @@ import os
 import json
 import sys
 import time
-import threading
 import random
 import requests
-import websocket
 from datetime import datetime, date, timezone
 
 # ── Secrets ───────────────────────────────────────────────────────────────────
@@ -66,71 +64,6 @@ def get_current_session(utc_hour: int, utc_weekday: int = -1) -> str:
         return "Off-hours"
     active = [n for n, (s, e) in SESSIONS.items() if s <= utc_hour < e]
     return " / ".join(active) if active else "Asia"
-
-# ══════════════════════════════════════════════════════════════════════════════
-# FIX #6: REAL-TIME PRICE FEED via Finnhub WebSocket
-# ══════════════════════════════════════════════════════════════════════════════
-_live_price = {"value": None, "ts": None}
-_ws_lock    = threading.Lock()
-
-def _on_ws_message(ws, message):
-    try:
-        data = json.loads(message)
-        if data.get("type") == "trade":
-            trades = data.get("data", [])
-            if trades:
-                latest = trades[-1]
-                with _ws_lock:
-                    _live_price["value"] = float(latest["p"])
-                    _live_price["ts"]    = float(latest["t"])
-    except Exception as e:
-        print(f"WS message parse error: {e}")
-
-def _on_ws_error(ws, error):
-    print(f"Finnhub WS error: {error}")
-
-def _on_ws_close(ws, *args):
-    print("Finnhub WS closed -- will reconnect")
-
-def _on_ws_open(ws):
-    # OANDA:XAU_USD is the confirmed working symbol for XAUUSD on Finnhub free tier
-    ws.send(json.dumps({"type": "subscribe", "symbol": "OANDA:XAU_USD"}))
-    print("Finnhub WS subscribed: OANDA:XAU_USD (real-time)")
-
-def start_price_feed():
-    """Start Finnhub WebSocket price feed in background thread. Auto-reconnects."""
-    if not FINNHUB_API_KEY:
-        print("No FINNHUB_API_KEY -- real-time entry price disabled, using candle close")
-        return
-
-    def _run():
-        while True:
-            try:
-                ws = websocket.WebSocketApp(
-                    f"wss://ws.finnhub.io?token={FINNHUB_API_KEY}",
-                    on_message=_on_ws_message,
-                    on_error=_on_ws_error,
-                    on_close=_on_ws_close,
-                    on_open=_on_ws_open,
-                )
-                ws.run_forever(ping_interval=30, ping_timeout=10)
-            except Exception as e:
-                print(f"WS crashed: {e}. Reconnecting in 5s...")
-            time.sleep(5)
-
-    t = threading.Thread(target=_run, daemon=True)
-    t.start()
-    print("Real-time price feed started (Finnhub)")
-
-def get_live_price() -> float | None:
-    """Return latest real-time price if fresh (< 10s old), else None."""
-    with _ws_lock:
-        if _live_price["value"] is None or _live_price["ts"] is None:
-            return None
-        age_ms = time.time() * 1000 - _live_price["ts"]
-        if age_ms > 10_000:  # stale if > 10 seconds
-            return None
-        return _live_price["value"]
 
 # ── State management ──────────────────────────────────────────────────────────
 def load_state() -> dict:
@@ -355,13 +288,9 @@ def fetch_market_data() -> dict:
     h1_trend = get_h1_trend()
     print(f"H1 Trend: {h1_trend.upper()}")
 
-    # FIX #6: Inject real-time entry price if Finnhub WS feed is live
-    live_price = get_live_price()
-    entry_price = live_price if live_price else latest["close"]
-    if live_price:
-        print(f"Live entry price: {live_price} (candle close was: {latest['close']})")
-    else:
-        print("Live price not ready -- using candle close as entry")
+    # Entry price guna candle close -- lebih fresh dari /price free tier (15min delay)
+    entry_price = latest["close"]
+    print(f"📡 Entry price: {entry_price} (candle close)")
 
     return {
         "candles":       candles,
@@ -1120,14 +1049,6 @@ if __name__ == "__main__":
     now_utc = datetime.now(timezone.utc)
     if now_utc.hour == 7 and now_utc.minute < int(get_fetch_interval(7) / 60) + 1:
         morning_update()
-
-    # Start real-time price feed BEFORE first signal check
-    start_price_feed()
-
-    # Allow WS to connect before first fetch (2 second warmup)
-    if FINNHUB_API_KEY:
-        print("Waiting 2s for WebSocket warmup...")
-        time.sleep(2)
 
     # Run main loop
     while True:
