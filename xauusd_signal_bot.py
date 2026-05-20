@@ -1218,8 +1218,10 @@ def main():
     finally:
         release_lock()
 
-# ── FIX #6: Entry point -- handle all args properly, NO while loop ─────────────
+# ── Entry point -- Railway worker (while True) + arg handler ──────────────────
 if __name__ == "__main__":
+
+    # Handle one-shot commands (morning update, weekly report)
     if len(sys.argv) > 1:
         cmd = sys.argv[1]
         if cmd == "morning":
@@ -1230,9 +1232,49 @@ if __name__ == "__main__":
             print(f"Unknown command: {cmd}")
         sys.exit(0)
 
-    # Default: single-shot signal check (GitHub Actions handles scheduling)
-    try:
-        main()
-    except Exception as e:
-        print(f"main() crashed: {e}")
-        sys.exit(1)
+    # ── Railway worker loop ────────────────────────────────────────────────────
+    # Runs forever -- Railway expects process yang tak exit
+    print("🚀 MTU Premium Signal Bot starting (Railway worker mode)...")
+
+    _last_morning_date = None  # Track morning update -- reset setiap hari MYT
+
+    while True:
+        try:
+            myt_now    = now_myt()
+            utc_now_dt = now_utc()
+            utc_hour   = utc_now_dt.hour
+            myt_hour   = myt_now.hour
+            today_myt  = str(myt_now.date())
+
+            # ── Morning update sekali sehari jam 08:00-08:29 MYT ─────────────
+            if myt_hour == 8 and _last_morning_date != today_myt:
+                print(f"[{myt_now.strftime('%H:%M')} MYT] Sending morning update...")
+                try:
+                    morning_update()
+                    _last_morning_date = today_myt
+                except Exception as e:
+                    print(f"Morning update failed: {e}")
+
+            # ── Main signal check ─────────────────────────────────────────────
+            try:
+                main()
+            except Exception as e:
+                print(f"main() error: {e}")
+
+            # ── Smart sleep ikut session ──────────────────────────────────────
+            # Tujuan: jimat API credits, max ~96 calls/hari
+            if not is_active_hours(utc_hour, utc_now_dt.weekday()):
+                sleep_secs = 1800  # 30 min -- off-hours / weekend
+                print(f"😴 Off-hours/weekend. Sleeping 30min...")
+            elif myt_hour in (8, 9, 10, 15, 16, 17, 21, 22, 23):
+                sleep_secs = 900   # 15 min -- high activity sessions
+                print(f"⚡ High activity. Next check in 15min...")
+            else:
+                sleep_secs = 1200  # 20 min -- normal hours
+                print(f"🕐 Normal hours. Next check in 20min...")
+
+        except Exception as e:
+            print(f"Loop error: {e}")
+            sleep_secs = 600  # 10 min cooldown kalau unexpected error
+
+        time.sleep(sleep_secs)
