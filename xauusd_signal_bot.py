@@ -2,7 +2,7 @@
 # XAUUSD AI Scalping Signal Bot -- MTU Premium
 # Strategy: S&R, S&D, Engulfing, Market Structure, RSI, EMA, MACD
 # Timeframe: 15-min | Sessions: Asia, London, New York
-# FIXES v3:
+# FIXES v4:
 #   1. detect_candle_patterns() -- fixed duplicate "double_bottom" key
 #   2. H1 trend block logic -- fixed >= to > for sell block
 #   3. find_sd_zones() -- added ATR spike filter to exclude news candles
@@ -12,13 +12,23 @@
 #   7. Cooldown -- always read from GitHub (authoritative, no stale cache)
 #   8. Double signal fix -- GitHub lock file to prevent race condition
 #   9. Removed GitHub Actions cache dependency for state management
+#  10. All display timestamps converted to MYT (UTC+8) -- date rollover, logs, messages
 
 import os
 import json
 import sys
 import time
 import requests
-from datetime import datetime, date, timezone
+from datetime import datetime, date, timezone, timedelta
+
+# ── Malaysia Timezone (UTC+8) ─────────────────────────────────────────────────
+MYT = timezone(timedelta(hours=8))
+
+def now_myt() -> datetime:
+    return datetime.now(MYT)
+
+def now_utc() -> datetime:
+    return datetime.now(timezone.utc)
 
 # ── Secrets ───────────────────────────────────────────────────────────────────
 TELEGRAM_BOT_TOKEN  = os.environ["TELEGRAM_BOT_TOKEN"]
@@ -44,26 +54,41 @@ SIGNAL_COUNT_FILE = str(_DATA_DIR / "signal_count.json")
 OPEN_SIGNALS_FILE = str(_DATA_DIR / "open_signals.json")
 print(f"Storage directory: {_DATA_DIR} ({'persistent' if str(_DATA_DIR) == '/data' else 'non-persistent -- GitHub is source of truth'})")
 
-# ── Session helpers ───────────────────────────────────────────────────────────
-SESSIONS = {
-    "Asia":     (0,  8),
-    "London":   (7,  16),
-    "New York": (13, 21),
+# ── Session helpers (semua dalam MYT = UTC+8) ─────────────────────────────────
+# Asia:     08:00 - 16:00 MYT  (00:00 - 08:00 UTC)
+# London:   15:00 - 00:00 MYT  (07:00 - 16:00 UTC)
+# New York: 21:00 - 05:00 MYT  (13:00 - 21:00 UTC)
+SESSIONS_MYT = {
+    "Asia":     (8,  16),
+    "London":   (15, 24),
+    "New York": (21, 29),  # 29 = 05:00 MYT next day (21 + 8)
 }
 
 def is_active_hours(utc_hour: int, utc_weekday: int = -1) -> bool:
     if utc_weekday in (5, 6):
         return False
-    return utc_hour not in (18, 19, 20, 21, 22)
+    # Convert to MYT for active hours check
+    myt_hour = (utc_hour + 8) % 24
+    # Off-hours: 02:00 - 07:00 MYT (dead zone)
+    return not (2 <= myt_hour < 7)
 
 def get_fetch_interval(utc_hour: int) -> int:
-    HIGH_ACTIVITY = (0, 1, 2, 3, 7, 8, 9, 13, 14, 15)
-    return 180 if utc_hour in HIGH_ACTIVITY else 300
+    myt_hour = (utc_hour + 8) % 24
+    HIGH_ACTIVITY_MYT = (8, 9, 10, 11, 15, 16, 17, 21, 22, 23)
+    return 180 if myt_hour in HIGH_ACTIVITY_MYT else 300
 
 def get_current_session(utc_hour: int, utc_weekday: int = -1) -> str:
     if not is_active_hours(utc_hour, utc_weekday):
         return "Off-hours"
-    active = [n for n, (s, e) in SESSIONS.items() if s <= utc_hour < e]
+    myt_hour = (utc_hour + 8) % 24
+    myt_hour_ext = myt_hour if myt_hour >= 8 else myt_hour + 24  # handle midnight crossover
+    active = []
+    if 8 <= myt_hour_ext < 16:
+        active.append("Asia")
+    if 15 <= myt_hour_ext < 24:
+        active.append("London")
+    if myt_hour_ext >= 21 or myt_hour_ext < 5:
+        active.append("New York")
     return " / ".join(active) if active else "Asia"
 
 # ── GitHub persistent storage ─────────────────────────────────────────────────
@@ -165,9 +190,10 @@ def load_state() -> dict:
     if content:
         try:
             data = json.loads(content)
-            if data.get("date") == str(date.today()):
+            # FIX: guna MYT date untuk daily reset -- supaya reset jam 00:00 MYT bukan UTC
+            today_myt = str(now_myt().date())
+            if data.get("date") == today_myt:
                 print("✅ State loaded from GitHub")
-                # Cache locally too
                 with open(SIGNAL_COUNT_FILE, "w") as f:
                     json.dump(data, f)
                 return data
@@ -178,12 +204,14 @@ def load_state() -> dict:
     try:
         with open(SIGNAL_COUNT_FILE) as f:
             data = json.load(f)
-        if data.get("date") == str(date.today()):
+        today_myt = str(now_myt().date())
+        if data.get("date") == today_myt:
             return data
     except (FileNotFoundError, json.JSONDecodeError):
         pass
 
-    return {"date": str(date.today()), "count": 0, "last_signal_utc": None}
+    today_myt = str(now_myt().date())
+    return {"date": today_myt, "count": 0, "last_signal_utc": None}
 
 def save_state(state: dict):
     with open(SIGNAL_COUNT_FILE, "w") as f:
@@ -956,7 +984,7 @@ def generate_morning_update(d: dict) -> str:
     change_pct = round((change / prev_close) * 100, 2)
     direction  = "🟢" if change >= 0 else "🔴"
     sign       = "+" if change >= 0 else ""
-    date_str   = datetime.now(timezone.utc).strftime("%A, %d %B %Y")
+    date_str   = now_myt().strftime("%A, %d %B %Y")
 
     candles         = d["candles"]
     structure       = detect_market_structure(candles)
@@ -1033,8 +1061,8 @@ Output ONLY the message. No preamble or extra text."""
     return response.json()["content"][0]["text"].strip()
 
 def morning_update():
-    now_utc = datetime.now(timezone.utc)
-    print(f"[{now_utc.strftime('%Y-%m-%d %H:%M')} UTC] Morning update running...")
+    myt_now = now_myt()
+    print(f"[{myt_now.strftime('%Y-%m-%d %H:%M')} MYT] Morning update running...")
     try:
         data = fetch_market_data()
     except Exception as e:
@@ -1056,12 +1084,13 @@ def morning_update():
 
 # ── Main signal loop ───────────────────────────────────────────────────────────
 def main():
-    now_utc     = datetime.now(timezone.utc)
-    utc_hour    = now_utc.hour
-    utc_weekday = now_utc.weekday()
+    myt_now     = now_myt()
+    utc_now     = now_utc()
+    utc_hour    = utc_now.hour
+    utc_weekday = utc_now.weekday()
     session     = get_current_session(utc_hour)
 
-    print(f"[{now_utc.strftime('%Y-%m-%d %H:%M')} UTC] Bot running...")
+    print(f"[{myt_now.strftime('%Y-%m-%d %H:%M')} MYT] Bot running...")
     print(f"Session: {session}")
 
     if not is_active_hours(utc_hour, utc_weekday):
@@ -1155,25 +1184,26 @@ def main():
         levels = calculate_levels(signal_type, data["price"], data["atr"], sr)
         if not levels.get("blocked"):
             new_signal = {
-                "id":                 now_utc.strftime("%Y%m%d%H%M"),
-                "type":               signal_type,
-                "entry":              levels["entry"],
-                "sl":                 levels["sl"],
-                "tp1":                levels["tp1"],
-                "tp2":                levels["tp2"],
-                "tp3":                levels["tp3"],
-                "confidence":         confidence,
-                "session":            session,
-                "status":             "open",
-                "tp1_hit":            False,
-                "tp2_hit":            False,
-                "tp3_hit":            False,
-                "sl_hit":             False,
+                "id":                   myt_now.strftime("%Y%m%d%H%M"),
+                "type":                 signal_type,
+                "entry":                levels["entry"],
+                "sl":                   levels["sl"],
+                "tp1":                  levels["tp1"],
+                "tp2":                  levels["tp2"],
+                "tp3":                  levels["tp3"],
+                "confidence":           confidence,
+                "session":              session,
+                "status":               "open",
+                "tp1_hit":              False,
+                "tp2_hit":              False,
+                "tp3_hit":              False,
+                "sl_hit":               False,
                 "last_notified_profit": 0.0,
-                "opened_utc":         now_utc.isoformat(),
-                "result":             "open",
-                "score":              score,
-                "sent_at":            now_utc.isoformat(),
+                "opened_utc":           utc_now.isoformat(),
+                "opened_myt":           myt_now.strftime("%d %b %Y %H:%M MYT"),
+                "result":               "open",
+                "score":                score,
+                "sent_at":              utc_now.isoformat(),
             }
             open_signals = load_open_signals()
             open_signals.append(new_signal)
@@ -1181,7 +1211,7 @@ def main():
 
         # Update state
         state["count"]          += 1
-        state["last_signal_utc"] = now_utc.isoformat()
+        state["last_signal_utc"] = utc_now.isoformat()
         save_state(state)
         print(f"Signals today: {state['count']}/{MAX_SIGNALS_PER_DAY}")
 
@@ -1195,7 +1225,6 @@ if __name__ == "__main__":
         if cmd == "morning":
             morning_update()
         elif cmd == "weekly":
-            # Placeholder -- add weekly report logic here if needed
             print("Weekly report triggered")
         else:
             print(f"Unknown command: {cmd}")
