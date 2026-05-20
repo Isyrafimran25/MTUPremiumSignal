@@ -1947,6 +1947,9 @@
     "result": "TP2",
     "score": 5,
     "sent_at": "2026-05-20T04:46:40.289036+00:00",
-    "session": "Asia"
+    "session": "Asia",
+    "tp2_hit": true,
+    "tp1_hit": true,
+    "status": "tp2_hit"
   }
 ]
