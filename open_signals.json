@@ -1936,5 +1936,17 @@
     "last_notified_profit": 0.0,
     "opened_utc": "2026-05-14T14:20:25.355090+00:00",
     "result": "TP3"
+  },
+  {
+    "type": "BUY",
+    "entry": 4463.59635,
+    "sl": 4458.6,
+    "tp1": 4468.6,
+    "tp2": 4473.6,
+    "tp3": 4478.6,
+    "result": "open",
+    "score": 5,
+    "sent_at": "2026-05-20T04:46:40.289036+00:00",
+    "session": "Asia"
   }
 ]
