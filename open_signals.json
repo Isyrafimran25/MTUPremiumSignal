@@ -1950,6 +1950,7 @@
     "session": "Asia",
     "tp2_hit": true,
     "tp1_hit": true,
-    "status": "tp2_hit"
+    "status": "closed",
+    "tp3_hit": true
   }
 ]
