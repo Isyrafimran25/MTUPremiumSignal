@@ -1952,5 +1952,17 @@
     "tp1_hit": true,
     "status": "closed",
     "tp3_hit": true
+  },
+  {
+    "type": "SELL",
+    "entry": 4534.12079,
+    "sl": 4539.12,
+    "tp1": 4529.12,
+    "tp2": 4524.12,
+    "tp3": 4519.12,
+    "result": "open",
+    "score": 5,
+    "sent_at": "2026-05-21T03:47:27.826467+00:00",
+    "session": "Asia"
   }
 ]
