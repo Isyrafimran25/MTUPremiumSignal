@@ -221,6 +221,10 @@ def compute_macd(closes: list, fast=12, slow=26, signal=9):
     return macd_line, signal_line
 
 def get_h1_trend() -> str:
+    """
+    H1 trend dengan threshold lebih relaxed.
+    Lebih banyak "neutral" = lebih banyak signal lulus.
+    """
     try:
         data    = td_get("time_series", interval="1h", outputsize=20)
         candles = data.get("values", [])
@@ -231,9 +235,10 @@ def get_h1_trend() -> str:
         avg_older  = sum(closes[5:]) / 5
         diff       = avg_recent - avg_older
         atr_h1     = abs(float(candles[0]["high"]) - float(candles[0]["low"]))
-        if diff > atr_h1 * 0.3:
+        # Threshold dinaikkan dari 0.3 ke 0.5 (lebih sukar nak label bearish/bullish)
+        if diff > atr_h1 * 0.5:
             return "bullish"
-        elif diff < -atr_h1 * 0.3:
+        elif diff < -atr_h1 * 0.5:
             return "bearish"
         return "neutral"
     except Exception as e:
@@ -608,22 +613,42 @@ def check_conditions(d: dict) -> tuple:
         sell_reasons.append("MACD bearish crossover")
         sell_data["macd"] = "bearish"
 
-    print(f"\n📊 SCORES:")
+    print(f"\n📊 SCORES (raw):")
     print(f"  BUY  = {buy_score}  | Reasons: {buy_reasons}")
     print(f"  SELL = {sell_score} | Reasons: {sell_reasons}")
 
-    # ── H1 trend filter ───────────────────────────────────────────────────────
+    # ══════════════════════════════════════════════════════════════════════════
+    # H1 trend filter -- SMARTER VERSION
+    # Instead of hard-blocking counter-trend trades, we DEMOTE them.
+    # Counter-trend trades require higher confluence (in zone + high score).
+    # ══════════════════════════════════════════════════════════════════════════
     h1_trend = d.get("h1_trend", "neutral")
 
+    # Counter-trend BUY (H1 bearish but 15m setup bullish)
     if h1_trend == "bearish" and buy_score > sell_score:
-        print(f"⛔ H1 BEARISH -- blocking BUY (score {buy_score}). Only SELL allowed.")
-        buy_score = 0
+        in_strong_zone = sd.get("in_demand") or sr.get("near_support")
+        if buy_score >= 6 and in_strong_zone:
+            print(f"⚠️ H1 BEARISH but counter-trend BUY allowed (score {buy_score} ≥ 6 + strong zone)")
+        elif buy_score >= 8:
+            print(f"⚠️ H1 BEARISH but counter-trend BUY allowed (score {buy_score} ≥ 8, high confluence)")
+        else:
+            print(f"⛔ H1 BEARISH -- BUY needs score≥6 + zone, OR score≥8. Got {buy_score}.")
+            buy_score = 0
+
+    # Counter-trend SELL (H1 bullish but 15m setup bearish)
     elif h1_trend == "bullish" and sell_score > buy_score:
-        print(f"⛔ H1 BULLISH -- blocking SELL (score {sell_score}). Only BUY allowed.")
-        sell_score = 0
+        in_strong_zone = sd.get("in_supply") or sr.get("near_resistance")
+        if sell_score >= 6 and in_strong_zone:
+            print(f"⚠️ H1 BULLISH but counter-trend SELL allowed (score {sell_score} ≥ 6 + strong zone)")
+        elif sell_score >= 8:
+            print(f"⚠️ H1 BULLISH but counter-trend SELL allowed (score {sell_score} ≥ 8, high confluence)")
+        else:
+            print(f"⛔ H1 BULLISH -- SELL needs score≥6 + zone, OR score≥8. Got {sell_score}.")
+            sell_score = 0
 
     MIN_SCORE = 5
     print(f"\nMIN_SCORE required: {MIN_SCORE}")
+    print(f"Final scores -- BUY: {buy_score} | SELL: {sell_score}")
 
     if buy_score >= sell_score and buy_score >= MIN_SCORE:
         confidence = "HIGH" if buy_score >= 8 else "MEDIUM"
