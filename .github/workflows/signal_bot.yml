@@ -2,15 +2,21 @@ name: XAUUSD Signal Bot
 
 on:
   schedule:
-    - cron: "0,30 0-8 * * 1-5"
-    - cron: "0,30 7-16 * * 1-5"
-    - cron: "0,30 13-21 * * 1-5"
+    # Run every 30 minutes during ALL active hours (00-21 UTC, Mon-Fri)
+    # Single cron line = no overlap, no race condition
+    - cron: "0,30 0-21 * * 1-5"
 
-  workflow_dispatch:
+  workflow_dispatch:  # Manual trigger
+
+# CRITICAL: prevent overlapping runs
+concurrency:
+  group: signal-bot
+  cancel-in-progress: false  # don't kill running job, just queue (or skip if queued)
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
 
     steps:
       - name: Checkout repo
@@ -30,6 +36,6 @@ jobs:
           TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
           ANTHROPIC_API_KEY:   ${{ secrets.ANTHROPIC_API_KEY }}
           TWELVEDATA_API_KEY:  ${{ secrets.TWELVEDATA_API_KEY }}
-          GH_TOKEN:            ${{ secrets.GH_TOKEN }}
+          GITHUB_TOKEN:        ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPO:         ${{ github.repository }}
         run: python xauusd_signal_bot.py
