@@ -1,151 +1,35 @@
-# ── Daily morning update ───────────────────────────────────────────────────────
-def generate_morning_update(d: dict) -> str:
-    price      = d["price"]
-    prev_close = d["prev_close"]
-    change     = round(price - prev_close, 2)
-    change_pct = round((change / prev_close) * 100, 2)
-    direction  = "🟢" if change >= 0 else "🔴"
-    sign       = "+" if change >= 0 else ""
-    date_str   = datetime.now(timezone.utc).strftime("%A, %d %B %Y")
+name: XAUUSD Morning Update
 
-    candles         = d["candles"]
-    structure       = detect_market_structure(candles)
-    sr              = find_sr_levels(candles, price, d["atr"])
-    sd              = find_sd_zones(candles, price, d["atr"])
-    structure_label = {
-        "bullish": "Bullish (Menaik) ⬆️",
-        "bearish": "Bearish (Menurun) ⬇️",
-        "ranging": "Ranging (Mendatar) ↔️"
-    }.get(structure, "Ranging ↔️")
+on:
+  schedule:
+    # 00:00 UTC = 08:00 MYT — Mon to Fri
+    - cron: "0 0 * * 1-5"
 
-    demand_str = (f"{sd['nearest_demand'][0]}-{sd['nearest_demand'][1]}"
-                  if sd.get("nearest_demand") else "No nearby zone")
-    supply_str = (f"{sd['nearest_supply'][0]}-{sd['nearest_supply'][1]}"
-                  if sd.get("nearest_supply") else "No nearby zone")
+  workflow_dispatch:  # Manual trigger for testing
 
-    prompt = f"""You are a professional XAUUSD market analyst for MTU Premium Telegram channel.
-Write a daily morning market update using EXACTLY this format:
+jobs:
+  morning-update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
 
-🌅 GOOD MORNING, TRADERS!
-📅 {date_str}
-━━━━━━━━━━━━━━━━━━━━━
-🥇 XAUUSD DAILY OUTLOOK
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
-💰 Current Price: {price}
-{direction} Change: {sign}{change} ({sign}{change_pct}%)
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
-📊 Technical Summary:
-- Structure: {structure_label}
-- RSI(14): {d['rsi']:.1f}
-- EMA9: {d['ema9']:.2f} | EMA21: {d['ema21']:.2f}
-- ATR(14): {d['atr']:.2f}
+      - name: Install dependencies
+        run: pip install requests
 
-🗺 Key Levels Today:
-- Resistance: {sr['resistance']}
-- Support: {sr['support']}
-- Supply Zone: {supply_str}
-- Demand Zone: {demand_str}
-
-🧭 Bias: {structure_label}
-━━━━━━━━━━━━━━━━━━━━━
-📝 Today's Outlook:
-[Write exactly 3 sharp sentences in English:
-1. Comment on current market structure and momentum.
-2. Highlight the most important S&R and S&D levels to watch today.
-3. Give a clear actionable bias -- buy dips, sell rallies, or wait for breakout.
-Keep it professional and concise.]
-
-🕐 Sessions Today (MYT):
-🌏 Asia: 08:00 - 16:00
-🇬🇧 London: 15:00 - 00:00
-🇺🇸 New York: 21:00 - 05:00
-
-⚠️ Not financial advice. Trade responsibly.
-🔔 MTU Premium | XAUUSD Signals
-
-Output ONLY the message. No preamble or extra text."""
-
-    response = requests.post(
-        "https://api.anthropic.com/v1/messages",
-        headers={
-            "x-api-key":         ANTHROPIC_API_KEY,
-            "anthropic-version": "2023-06-01",
-            "content-type":      "application/json",
-        },
-        json={
-            "model":      "claude-sonnet-4-20250514",
-            "max_tokens": 700,
-            "messages":   [{"role": "user", "content": prompt}],
-        },
-        timeout=30,
-    )
-    response.raise_for_status()
-    return response.json()["content"][0]["text"].strip()
-
-
-def morning_update():
-    now_utc = datetime.now(timezone.utc)
-    print(f"[{now_utc.strftime('%Y-%m-%d %H:%M')} UTC] Morning update running...")
-
-    # Skip weekends
-    if now_utc.weekday() in (5, 6):
-        print("Weekend — skip morning update.")
-        return
-
-    try:
-        print("Fetching market data...")
-        data = fetch_market_data()
-        print(f"✅ Price: {data['price']} | RSI: {data['rsi']} | ATR: {data['atr']}")
-    except Exception as e:
-        print(f"❌ Data fetch failed: {e}")
-        return
-
-    try:
-        print("Generating AI message...")
-        message = generate_morning_update(data)
-        print(f"✅ Message generated ({len(message)} chars)")
-    except Exception as e:
-        print(f"❌ AI generation failed: {e}")
-        return
-
-    print("-" * 50)
-    print(message)
-    print("-" * 50)
-
-    try:
-        send_to_telegram(message)
-        print("✅ Morning update sent to Telegram!")
-    except Exception as e:
-        print(f"❌ Telegram send failed: {e}")
-
-
-# ── Entry point ───────────────────────────────────────────────────────────────
-if __name__ == "__main__":
-    import sys
-
-    # CLI: python xauusd_signal_bot.py morning
-    if len(sys.argv) > 1 and sys.argv[1] == "morning":
-        morning_update()
-        sys.exit(0)
-
-    # CLI: python xauusd_signal_bot.py weekly
-    if len(sys.argv) > 1 and sys.argv[1] == "weekly":
-        # weekly report logic here if exists
-        sys.exit(0)
-
-    # Default: signal loop (for local/Railway use only, not GitHub Actions)
-    now_utc = datetime.now(timezone.utc)
-    # Morning update check if running in loop mode
-    if now_utc.hour == 0 and now_utc.minute < 5:
-        morning_update()
-
-    while True:
-        try:
-            main()
-        except Exception as e:
-            print(f"main() crashed: {e}")
-
-        now_utc    = datetime.now(timezone.utc)
-        sleep_secs = get_fetch_interval(now_utc.hour)
-        print(f"Sleeping {sleep_secs}s until next check...")
-        time.sleep(sleep_secs)
+      - name: Send morning market update
+        env:
+          TELEGRAM_BOT_TOKEN:  ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+          ANTHROPIC_API_KEY:   ${{ secrets.ANTHROPIC_API_KEY }}
+          TWELVEDATA_API_KEY:  ${{ secrets.TWELVEDATA_API_KEY }}
+          GITHUB_TOKEN:        ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO:         ${{ github.repository }}
+        run: python xauusd_signal_bot.py morning
