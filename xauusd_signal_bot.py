@@ -17,8 +17,7 @@ TELEGRAM_CHANNEL_ID = os.environ["TELEGRAM_CHANNEL_ID"]
 ANTHROPIC_API_KEY   = os.environ["ANTHROPIC_API_KEY"]
 TWELVEDATA_API_KEY  = os.environ["TWELVEDATA_API_KEY"]
 NEWSAPI_KEY         = os.environ.get("NEWSAPI_KEY", "")
-# FIX: guna GH_TOKEN (GITHUB_ prefix reserved by GitHub Actions)
-GITHUB_TOKEN        = os.environ.get("GH_TOKEN", os.environ.get("GITHUB_TOKEN", ""))
+GITHUB_TOKEN        = os.environ.get("GITHUB_TOKEN", "")
 GITHUB_REPO         = os.environ.get("GITHUB_REPO", "Isyrafimran25/MTUPremiumSignal")
 FINNHUB_API_KEY     = os.environ.get("FINNHUB_API_KEY", "")
 
@@ -42,6 +41,7 @@ SESSIONS = {
     "New York": (13, 21),
 }
 
+# ── Active trading hours ──────────────────────────────────────────────────────
 def is_active_hours(utc_hour: int, utc_weekday: int = -1) -> bool:
     if utc_weekday in (5, 6):
         return False
@@ -87,7 +87,6 @@ def save_state(state: dict):
 # ── GitHub persistent storage ─────────────────────────────────────────────────
 def github_get_file(filename: str) -> tuple:
     if not GITHUB_TOKEN:
-        print(f"⚠️  GH_TOKEN not set -- skipping GitHub read for {filename}")
         return None, None
     try:
         url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{filename}"
@@ -100,7 +99,6 @@ def github_get_file(filename: str) -> tuple:
             import base64
             content = base64.b64decode(data["content"]).decode("utf-8")
             return content, data["sha"]
-        print(f"⚠️  GitHub get {filename}: HTTP {r.status_code}")
         return None, None
     except Exception as e:
         print(f"GitHub get failed: {e}")
@@ -108,7 +106,6 @@ def github_get_file(filename: str) -> tuple:
 
 def github_push_file(filename: str, content: str, msg: str = "update signal data"):
     if not GITHUB_TOKEN:
-        print(f"⚠️  GH_TOKEN not set -- skipping GitHub push for {filename}")
         return
     try:
         import base64
@@ -125,9 +122,9 @@ def github_push_file(filename: str, content: str, msg: str = "update signal data
             "Accept": "application/vnd.github.v3+json",
         }, json=payload, timeout=10)
         if r.status_code in (200, 201):
-            print(f"✅ GitHub: {filename} saved ok")
+            print(f"GitHub: {filename} saved ok")
         else:
-            print(f"❌ GitHub push failed: {r.status_code} {r.text[:200]}")
+            print(f"GitHub push failed: {r.status_code} {r.text[:100]}")
     except Exception as e:
         print(f"GitHub push error: {e}")
 
@@ -748,85 +745,62 @@ def send_to_telegram(message: str):
         "text":       message,
         "parse_mode": "HTML",
     }, timeout=15)
-    r.raise_for_status()
     print(f"📡 Telegram status: {r.status_code}")
+    r.raise_for_status()
 
 # ── Open signals management ───────────────────────────────────────────────────
-# FIX: GitHub jadi source of truth -- local file dalam Actions memang kosong setiap run
 def load_open_signals() -> list:
-    print("📥 Loading signals from GitHub...")
-    signals = load_open_signals_github()
-    if signals:
-        print(f"✅ Loaded {len(signals)} signals from GitHub")
-        with open(OPEN_SIGNALS_FILE, "w") as f:
-            json.dump(signals, f, indent=2)
-        return signals
-    # Fallback local (untuk Railway/persistent env je)
     try:
         with open(OPEN_SIGNALS_FILE) as f:
-            local = json.load(f)
-            if local:
-                print(f"✅ Loaded {len(local)} signals from local fallback")
-                return local
+            signals = json.load(f)
+        if signals:
+            return signals
     except (FileNotFoundError, json.JSONDecodeError):
         pass
-    print("ℹ️  No existing signals found")
-    return []
+    return load_open_signals_github()
 
 def save_open_signals(signals: list):
     save_open_signals_github(signals)
 
 def update_open_signals(current_price: float) -> list:
     signals = load_open_signals()
-    changed = False
-
+    updated = []
     for sig in signals:
         direction = sig.get("type", "BUY")
-        sl    = sig.get("sl")
-        tp1   = sig.get("tp1")
-        tp2   = sig.get("tp2")
-        tp3   = sig.get("tp3")
+        sl        = sig.get("sl")
+        tp3       = sig.get("tp3")
+        tp2       = sig.get("tp2")
+        tp1       = sig.get("tp1")
+        entry     = sig.get("entry")
+        result    = sig.get("result", "open")
 
-        # FIX: support format lama (guna 'status') dan format baru (guna 'result')
-        old_status = sig.get("status", "open")
-        old_result = sig.get("result", "open")
-
-        # Skip kalau dah closed -- check kedua-dua field
-        already_closed = (
-            old_result not in ("open", None) or
-            old_status in ("sl_hit", "closed", "tp1_hit", "tp2_hit")
-        )
-        if already_closed:
+        if result != "open":
+            updated.append(sig)
             continue
 
-        new_result = None
-
         if direction == "BUY":
-            if current_price <= sl:      new_result = "SL"
-            elif current_price >= tp3:   new_result = "TP3"
-            elif current_price >= tp2:   new_result = "TP2"
-            elif current_price >= tp1:   new_result = "TP1"
-        else:  # SELL
-            if current_price >= sl:      new_result = "SL"
-            elif current_price <= tp3:   new_result = "TP3"
-            elif current_price <= tp2:   new_result = "TP2"
-            elif current_price <= tp1:   new_result = "TP1"
+            if current_price <= sl:
+                sig["result"] = "SL"
+            elif current_price >= tp3:
+                sig["result"] = "TP3"
+            elif current_price >= tp2:
+                sig["result"] = "TP2"
+            elif current_price >= tp1:
+                sig["result"] = "TP1"
+        else:
+            if current_price >= sl:
+                sig["result"] = "SL"
+            elif current_price <= tp3:
+                sig["result"] = "TP3"
+            elif current_price <= tp2:
+                sig["result"] = "TP2"
+            elif current_price <= tp1:
+                sig["result"] = "TP1"
 
-        if new_result:
-            sig["result"] = new_result
-            sig["status"] = "sl_hit" if new_result == "SL" else "closed"
-            print(f"🎯 Signal {sig.get('id', sig.get('sent_at', 'unknown'))} → {new_result} @ {current_price}")
-            changed = True
+        updated.append(sig)
 
-    if changed:
-        save_open_signals(signals)
-        closed_count = sum(1 for s in signals if s.get("result", "open") != "open")
-        print(f"💾 Saved. Total closed: {closed_count}/{len(signals)}")
-    else:
-        open_count = sum(1 for s in signals if s.get("result", "open") == "open")
-        print(f"📊 No status changes. {open_count} signals still open.")
-
-    return signals
+    save_open_signals(updated)
+    return updated
 
 # ── Daily morning update ───────────────────────────────────────────────────────
 def generate_morning_update(d: dict) -> str:
@@ -912,25 +886,42 @@ Output ONLY the message. No preamble or extra text."""
     response.raise_for_status()
     return response.json()["content"][0]["text"].strip()
 
+
 def morning_update():
     now_utc = datetime.now(timezone.utc)
     print(f"[{now_utc.strftime('%Y-%m-%d %H:%M')} UTC] Morning update running...")
+
+    # Skip weekends
+    if now_utc.weekday() in (5, 6):
+        print("Weekend -- skip morning update.")
+        return
+
     try:
+        print("Fetching market data...")
         data = fetch_market_data()
+        print(f"✅ Price: {data['price']} | RSI: {data['rsi']} | ATR: {data['atr']}")
     except Exception as e:
-        print(f"Data fetch failed: {e}"); return
+        print(f"❌ Data fetch failed: {e}")
+        return
+
     try:
+        print("Generating AI message...")
         message = generate_morning_update(data)
+        print(f"✅ Message generated ({len(message)} chars)")
     except Exception as e:
-        print(f"AI generation failed: {e}"); return
+        print(f"❌ AI generation failed: {e}")
+        return
+
     print("-" * 50)
     print(message)
     print("-" * 50)
+
     try:
         send_to_telegram(message)
-        print("Kemaskini pagi telah dihantar!")
+        print("✅ Morning update sent to Telegram!")
     except Exception as e:
-        print(f"Telegram send failed: {e}")
+        print(f"❌ Telegram send failed: {e}")
+
 
 # ── Main signal loop ───────────────────────────────────────────────────────────
 def main():
@@ -961,7 +952,7 @@ def main():
 
     # Consecutive SL protection
     recent_signals = load_open_signals()
-    recent_closed  = [s for s in recent_signals if s.get("result", "open") != "open"][-5:]
+    recent_closed  = [s for s in recent_signals if s.get("result") != "open"][-5:]
     consecutive_sl = 0
     for sig in reversed(recent_closed):
         if sig.get("result") == "SL":
@@ -986,13 +977,7 @@ def main():
         print(f"Market data fetch failed: {e}")
         return
 
-    # Update open signals with current price
     update_open_signals(data["price"])
-
-    # Debug -- confirm GitHub sync working
-    open_sigs  = load_open_signals()
-    open_count = sum(1 for s in open_sigs if s.get("result", "open") == "open")
-    print(f"📡 GitHub sync: {len(open_sigs)} total signals, {open_count} still open")
 
     signal_type, reasons, confidence, score, analysis = check_conditions(data)
 
@@ -1025,7 +1010,6 @@ def main():
         print(f"Telegram send failed: {e}")
         return
 
-    # Save signal to open signals list
     sr     = analysis.get("sr", {})
     levels = calculate_levels(signal_type, data["price"], data["atr"], sr)
     if not levels.get("blocked"):
@@ -1037,7 +1021,6 @@ def main():
             "tp2":      levels["tp2"],
             "tp3":      levels["tp3"],
             "result":   "open",
-            "status":   "open",
             "score":    score,
             "sent_at":  datetime.now(timezone.utc).isoformat(),
             "session":  session,
@@ -1045,32 +1028,37 @@ def main():
         open_signals = load_open_signals()
         open_signals.append(new_signal)
         save_open_signals(open_signals)
-        print(f"✅ New signal saved to GitHub")
 
-    # Update state
     state["count"]           += 1
     state["last_signal_utc"]  = datetime.now(timezone.utc).isoformat()
     save_state(state)
     print(f"Signals today: {state['count']}/{MAX_SIGNALS_PER_DAY}")
 
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        if sys.argv[1] == "morning":
-            morning_update()
-            sys.exit(0)
-        elif sys.argv[1] == "weekly":
-            print("Weekly report not implemented yet.")
-            sys.exit(0)
 
-    # Morning update check -- run at 07:00 UTC (15:00 MYT)
+    # CLI: python xauusd_signal_bot.py morning
+    if len(sys.argv) > 1 and sys.argv[1] == "morning":
+        morning_update()
+        sys.exit(0)
+
+    # CLI: python xauusd_signal_bot.py weekly
+    if len(sys.argv) > 1 and sys.argv[1] == "weekly":
+        sys.exit(0)
+
+    # Default: signal loop (Railway / local only)
     now_utc = datetime.now(timezone.utc)
-    if now_utc.hour == 7 and now_utc.minute < int(get_fetch_interval(7) / 60) + 1:
+    if now_utc.hour == 0 and now_utc.minute < 5:
         morning_update()
 
-    # Single run (GitHub Actions mode -- no while loop)
-    try:
-        main()
-    except Exception as e:
-        print(f"main() crashed: {e}")
-        raise
+    while True:
+        try:
+            main()
+        except Exception as e:
+            print(f"main() crashed: {e}")
+
+        now_utc    = datetime.now(timezone.utc)
+        sleep_secs = get_fetch_interval(now_utc.hour)
+        print(f"Sleeping {sleep_secs}s until next check...")
+        time.sleep(sleep_secs)
