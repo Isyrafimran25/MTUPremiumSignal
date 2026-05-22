@@ -468,13 +468,29 @@ def check_conditions(d: dict) -> tuple:
     atr     = d["atr"]
     avg_atr = d["avg_atr"]
 
+    print(f"\n{'='*60}")
+    print(f"🔍 SIGNAL ANALYSIS")
+    print(f"{'='*60}")
+    print(f"Price: {price} | RSI: {rsi} | ATR: {atr} | Avg ATR: {avg_atr}")
+    print(f"EMA9: {d['ema9']} | EMA21: {d['ema21']}")
+    print(f"MACD: {d['macd']} | Signal: {d['macd_signal']}")
+    print(f"H1 Trend: {d.get('h1_trend', 'neutral').upper()}")
+
+    # Volatility gate
     if atr < avg_atr * 0.85:
+        print(f"❌ REJECTED: Low volatility (ATR {atr} < {avg_atr * 0.85:.2f})")
         return None, None, None, 0, {}
 
     structure = detect_market_structure(candles)
     sr        = find_sr_levels(candles, price, atr)
     sd        = find_sd_zones(candles, price, atr)
     cp        = detect_candle_patterns(candles, atr)
+
+    print(f"Structure: {structure.upper()}")
+    print(f"Support: {sr['support']} (near: {sr['near_support']})")
+    print(f"Resistance: {sr['resistance']} (near: {sr['near_resistance']})")
+    print(f"In Demand Zone: {sd['in_demand']} | In Supply Zone: {sd['in_supply']}")
+    print(f"Candle Patterns: {cp['patterns']}")
 
     ema_cross_up   = d["ema9_prev"] < d["ema21_prev"] and d["ema9"] > d["ema21"]
     ema_cross_down = d["ema9_prev"] > d["ema21_prev"] and d["ema9"] < d["ema21"]
@@ -487,8 +503,10 @@ def check_conditions(d: dict) -> tuple:
         sr.get("near_support") or sr.get("near_resistance") or
         sd.get("in_demand")   or sd.get("in_supply")
     ):
+        print(f"❌ REJECTED: Ranging market, no key level nearby")
         return None, None, None, 0, {}
 
+    # ── BUY score ─────────────────────────────────────────────────────────────
     buy_score   = 0
     buy_reasons = []
     buy_data    = {}
@@ -539,6 +557,7 @@ def check_conditions(d: dict) -> tuple:
         buy_reasons.append("MACD bullish crossover")
         buy_data["macd"] = "bullish"
 
+    # ── SELL score ────────────────────────────────────────────────────────────
     sell_score   = 0
     sell_reasons = []
     sell_data    = {}
@@ -589,27 +608,39 @@ def check_conditions(d: dict) -> tuple:
         sell_reasons.append("MACD bearish crossover")
         sell_data["macd"] = "bearish"
 
+    print(f"\n📊 SCORES:")
+    print(f"  BUY  = {buy_score}  | Reasons: {buy_reasons}")
+    print(f"  SELL = {sell_score} | Reasons: {sell_reasons}")
+
+    # ── H1 trend filter ───────────────────────────────────────────────────────
     h1_trend = d.get("h1_trend", "neutral")
 
     if h1_trend == "bearish" and buy_score > sell_score:
-        print(f"H1 BEARISH -- blocking BUY (score {buy_score}). Only SELL allowed.")
+        print(f"⛔ H1 BEARISH -- blocking BUY (score {buy_score}). Only SELL allowed.")
         buy_score = 0
     elif h1_trend == "bullish" and sell_score > buy_score:
-        print(f"H1 BULLISH -- blocking SELL (score {sell_score}). Only BUY allowed.")
+        print(f"⛔ H1 BULLISH -- blocking SELL (score {sell_score}). Only BUY allowed.")
         sell_score = 0
 
     MIN_SCORE = 5
+    print(f"\nMIN_SCORE required: {MIN_SCORE}")
 
     if buy_score >= sell_score and buy_score >= MIN_SCORE:
         confidence = "HIGH" if buy_score >= 8 else "MEDIUM"
         analysis   = {**buy_data, "sr": sr, "sd": sd, "score": buy_score}
+        print(f"✅ BUY SIGNAL TRIGGERED (score {buy_score}, confidence {confidence})")
+        print(f"{'='*60}\n")
         return "BUY", buy_reasons, confidence, buy_score, analysis
 
     if sell_score > buy_score and sell_score >= MIN_SCORE:
         confidence = "HIGH" if sell_score >= 8 else "MEDIUM"
         analysis   = {**sell_data, "sr": sr, "sd": sd, "score": sell_score}
+        print(f"✅ SELL SIGNAL TRIGGERED (score {sell_score}, confidence {confidence})")
+        print(f"{'='*60}\n")
         return "SELL", sell_reasons, confidence, sell_score, analysis
 
+    print(f"❌ REJECTED: Highest score ({max(buy_score, sell_score)}) < MIN_SCORE ({MIN_SCORE})")
+    print(f"{'='*60}\n")
     return None, None, None, 0, {}
 
 # ── Level calculator ──────────────────────────────────────────────────────────
@@ -891,7 +922,6 @@ def morning_update():
     now_utc = datetime.now(timezone.utc)
     print(f"[{now_utc.strftime('%Y-%m-%d %H:%M')} UTC] Morning update running...")
 
-    # Skip weekends
     if now_utc.weekday() in (5, 6):
         print("Weekend -- skip morning update.")
         return
@@ -947,10 +977,14 @@ def main():
         return
 
     if not cooldown_ok(state):
-        print(f"Cooldown aktif -- {COOLDOWN_MINUTES} minit antara isyarat.")
+        last = state.get("last_signal_utc", "")
+        try:
+            diff = (datetime.now(timezone.utc) - datetime.fromisoformat(last)).total_seconds() / 60
+            print(f"⏳ Cooldown aktif -- {diff:.1f}/{COOLDOWN_MINUTES} min elapsed.")
+        except:
+            print(f"⏳ Cooldown aktif -- {COOLDOWN_MINUTES} min antara isyarat.")
         return
 
-    # Consecutive SL protection
     recent_signals = load_open_signals()
     recent_closed  = [s for s in recent_signals if s.get("result") != "open"][-5:]
     consecutive_sl = 0
@@ -966,7 +1000,7 @@ def main():
                 elapsed = (datetime.now(timezone.utc) -
                            datetime.fromisoformat(last_sl_time)).total_seconds() / 3600
                 if elapsed < 2.0:
-                    print(f"3 consecutive SL -- pausing signals for 2h (elapsed: {elapsed:.1f}h)")
+                    print(f"⛔ 3 consecutive SL -- pausing signals for 2h (elapsed: {elapsed:.1f}h)")
                     return
             except:
                 pass
@@ -974,7 +1008,7 @@ def main():
     try:
         data = fetch_market_data()
     except Exception as e:
-        print(f"Market data fetch failed: {e}")
+        print(f"❌ Market data fetch failed: {e}")
         return
 
     update_open_signals(data["price"])
@@ -985,14 +1019,14 @@ def main():
         print("No signal -- conditions not met.")
         return
 
-    print(f"Signal detected: {signal_type} | Score: {score} | Confidence: {confidence}")
+    print(f"🎯 Signal detected: {signal_type} | Score: {score} | Confidence: {confidence}")
 
     try:
         message = generate_signal_message(
             signal_type, data, confidence, session, reasons, score, analysis
         )
     except Exception as e:
-        print(f"Message generation failed: {e}")
+        print(f"❌ Message generation failed: {e}")
         return
 
     if not message:
@@ -1005,9 +1039,9 @@ def main():
 
     try:
         send_to_telegram(message)
-        print("Signal dihantar ke Telegram!")
+        print("✅ Signal dihantar ke Telegram!")
     except Exception as e:
-        print(f"Telegram send failed: {e}")
+        print(f"❌ Telegram send failed: {e}")
         return
 
     sr     = analysis.get("sr", {})
@@ -1038,16 +1072,13 @@ def main():
 # ── Entry point ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
 
-    # CLI: python xauusd_signal_bot.py morning
     if len(sys.argv) > 1 and sys.argv[1] == "morning":
         morning_update()
         sys.exit(0)
 
-    # CLI: python xauusd_signal_bot.py weekly
     if len(sys.argv) > 1 and sys.argv[1] == "weekly":
         sys.exit(0)
 
-    # Default: signal loop (Railway / local only)
     now_utc = datetime.now(timezone.utc)
     if now_utc.hour == 0 and now_utc.minute < 5:
         morning_update()
