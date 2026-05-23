@@ -2,24 +2,23 @@
 # XAUUSD AI Scalping Signal Bot -- MTU Premium
 # Strategy: S&R, S&D, Engulfing, Market Structure, RSI, EMA, MACD
 # Timeframe: 15-min | Sessions: Asia, London, New York
+# Railway Edition: persistent 24/7 loop, /data volume, no GitHub Actions dependency
 
 import os
 import json
 import sys
 import time
-import random
 import requests
-from datetime import datetime, date, timezone
+import pathlib as _pathlib
+from datetime import datetime, date, timezone, timedelta
 
 # ── Secrets ───────────────────────────────────────────────────────────────────
 TELEGRAM_BOT_TOKEN  = os.environ["TELEGRAM_BOT_TOKEN"]
 TELEGRAM_CHANNEL_ID = os.environ["TELEGRAM_CHANNEL_ID"]
 ANTHROPIC_API_KEY   = os.environ["ANTHROPIC_API_KEY"]
 TWELVEDATA_API_KEY  = os.environ["TWELVEDATA_API_KEY"]
-NEWSAPI_KEY         = os.environ.get("NEWSAPI_KEY", "")
 GITHUB_TOKEN        = os.environ.get("GITHUB_TOKEN", "")
 GITHUB_REPO         = os.environ.get("GITHUB_REPO", "Isyrafimran25/MTUPremiumSignal")
-FINNHUB_API_KEY     = os.environ.get("FINNHUB_API_KEY", "")
 
 # ── Config ────────────────────────────────────────────────────────────────────
 MAX_SIGNALS_PER_DAY = 10
@@ -27,12 +26,12 @@ COOLDOWN_MINUTES    = 90
 SYMBOL              = "XAU/USD"
 INTERVAL            = "15min"
 
-# ── Persistent storage paths ──────────────────────────────────────────────────
-import pathlib as _pathlib
-_DATA_DIR        = _pathlib.Path("/data") if _pathlib.Path("/data").exists() else _pathlib.Path(".")
+# ── Persistent storage -- Railway /data volume ────────────────────────────────
+_DATA_DIR         = _pathlib.Path("/data") if _pathlib.Path("/data").exists() else _pathlib.Path(".")
 SIGNAL_COUNT_FILE = str(_DATA_DIR / "signal_count.json")
 OPEN_SIGNALS_FILE = str(_DATA_DIR / "open_signals.json")
-print(f"Storage directory: {_DATA_DIR} ({'persistent' if str(_DATA_DIR) == '/data' else 'non-persistent -- using GitHub as source of truth'})")
+
+print(f"[INIT] Storage: {_DATA_DIR} ({'✅ persistent /data volume' if str(_DATA_DIR) == '/data' else '⚠️  local dir -- add Railway Volume!'})", flush=True)
 
 # ── Session helpers ───────────────────────────────────────────────────────────
 SESSIONS = {
@@ -41,7 +40,6 @@ SESSIONS = {
     "New York": (13, 21),
 }
 
-# ── Active trading hours ──────────────────────────────────────────────────────
 def is_active_hours(utc_hour: int, utc_weekday: int = -1) -> bool:
     if utc_weekday in (5, 6):
         return False
@@ -57,102 +55,99 @@ def get_current_session(utc_hour: int, utc_weekday: int = -1) -> str:
     active = [n for n, (s, e) in SESSIONS.items() if s <= utc_hour < e]
     return " / ".join(active) if active else "Asia"
 
-# ── GitHub persistent storage ─────────────────────────────────────────────────
+# ── State management ──────────────────────────────────────────────────────────
+def load_state() -> dict:
+    # Try local /data first
+    try:
+        with open(SIGNAL_COUNT_FILE) as f:
+            data = json.load(f)
+        if data.get("date") == str(date.today()):
+            return data
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+
+    # Fallback to GitHub
+    content_gh, _ = github_get_file("signal_count.json")
+    if content_gh:
+        try:
+            data = json.loads(content_gh)
+            if data.get("date") == str(date.today()):
+                print("[STATE] Loaded from GitHub fallback.", flush=True)
+                with open(SIGNAL_COUNT_FILE, "w") as f:
+                    json.dump(data, f)
+                return data
+        except:
+            pass
+
+    return {"date": str(date.today()), "count": 0, "last_signal_utc": None}
+
+def save_state(state: dict):
+    with open(SIGNAL_COUNT_FILE, "w") as f:
+        json.dump(state, f)
+    github_push_file("signal_count.json", json.dumps(state), "update signal state")
+
+# ── GitHub sync (backup only, not primary storage) ────────────────────────────
 def github_get_file(filename: str) -> tuple:
     if not GITHUB_TOKEN:
         return None, None
     try:
+        import base64
         url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{filename}"
         r = requests.get(url, headers={
             "Authorization": f"token {GITHUB_TOKEN}",
-            "Accept": "application/vnd.github.v3+json",
+            "Accept":        "application/vnd.github.v3+json",
         }, timeout=10)
         if r.status_code == 200:
-            data = r.json()
-            import base64
+            data    = r.json()
             content = base64.b64decode(data["content"]).decode("utf-8")
             return content, data["sha"]
         return None, None
     except Exception as e:
-        print(f"GitHub get failed: {e}")
+        print(f"[GH] get failed: {e}", flush=True)
         return None, None
 
-def github_push_file(filename: str, content: str, msg: str = "update signal data"):
+def github_push_file(filename: str, content: str, msg: str = "update"):
     if not GITHUB_TOKEN:
-        return False
+        return
     try:
         import base64
         _, sha = github_get_file(filename)
-        url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{filename}"
+        url    = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{filename}"
         payload = {
             "message": msg,
-            "content": base64.b64encode(content.encode("utf-8")).decode("utf-8"),
+            "content": base64.b64encode(content.encode()).decode(),
         }
         if sha:
             payload["sha"] = sha
         r = requests.put(url, headers={
             "Authorization": f"token {GITHUB_TOKEN}",
-            "Accept": "application/vnd.github.v3+json",
+            "Accept":        "application/vnd.github.v3+json",
         }, json=payload, timeout=10)
         if r.status_code in (200, 201):
-            print(f"GitHub: {filename} saved ok")
-            return True
+            print(f"[GH] {filename} synced ✅", flush=True)
         else:
-            print(f"GitHub push failed: {r.status_code} {r.text[:100]}")
-            return False
+            print(f"[GH] push failed: {r.status_code}", flush=True)
     except Exception as e:
-        print(f"GitHub push error: {e}")
-        return False
+        print(f"[GH] push error: {e}", flush=True)
 
-# ══════════════════════════════════════════════════════════════════════════════
-# STATE MANAGEMENT -- GitHub-first (single source of truth)
-# Local file just cache, GitHub is the authoritative store.
-# ══════════════════════════════════════════════════════════════════════════════
-def load_state() -> dict:
-    """ALWAYS load from GitHub first (source of truth). Local file is fallback only."""
-    if GITHUB_TOKEN:
-        content_gh, _ = github_get_file("signal_count.json")
-        if content_gh:
-            try:
-                data = json.loads(content_gh)
-                if data.get("date") == str(date.today()):
-                    print(f"📥 State loaded from GitHub: count={data.get('count', 0)}, last={data.get('last_signal_utc', 'none')}")
-                    # Sync to local cache
-                    with open(SIGNAL_COUNT_FILE, "w") as f:
-                        json.dump(data, f)
-                    return data
-                else:
-                    print(f"📅 GitHub state stale (date {data.get('date')}), resetting for today")
-            except Exception as e:
-                print(f"GitHub state parse failed: {e}")
+def cooldown_ok(state: dict) -> bool:
+    last = state.get("last_signal_utc")
+    if not last:
+        return True
+    diff = (datetime.now(timezone.utc) -
+            datetime.fromisoformat(last)).total_seconds() / 60
+    return diff >= COOLDOWN_MINUTES
 
-    # Fallback to local file
+# ── Open signals ──────────────────────────────────────────────────────────────
+def load_open_signals() -> list:
     try:
-        with open(SIGNAL_COUNT_FILE) as f:
+        with open(OPEN_SIGNALS_FILE) as f:
             data = json.load(f)
-        if data.get("date") == str(date.today()):
-            print(f"📁 State loaded from local: count={data.get('count', 0)}")
+        if data:
             return data
     except (FileNotFoundError, json.JSONDecodeError):
         pass
-
-    print("🆕 Fresh state for today")
-    return {
-        "date": str(date.today()),
-        "count": 0,
-        "last_signal_utc": None,
-        "last_signal_hash": None,  # Dedup key
-    }
-
-def save_state(state: dict):
-    """Push to GitHub FIRST, then save locally. GitHub success is what matters."""
-    success = github_push_file("signal_count.json", json.dumps(state), "update signal state")
-    if not success:
-        print("⚠️ WARNING: GitHub state push failed -- next run may not see this update!")
-    with open(SIGNAL_COUNT_FILE, "w") as f:
-        json.dump(state, f)
-
-def load_open_signals_github() -> list:
+    # Fallback to GitHub
     content, _ = github_get_file("open_signals.json")
     if content:
         try:
@@ -161,26 +156,10 @@ def load_open_signals_github() -> list:
             pass
     return []
 
-def save_open_signals_github(signals: list):
+def save_open_signals(signals: list):
     with open(OPEN_SIGNALS_FILE, "w") as f:
         json.dump(signals, f, indent=2)
     github_push_file("open_signals.json", json.dumps(signals, indent=2), "update open signals")
-
-def cooldown_ok(state: dict) -> bool:
-    last = state.get("last_signal_utc")
-    if not last:
-        return True
-    try:
-        diff = (datetime.now(timezone.utc) -
-                datetime.fromisoformat(last)).total_seconds() / 60
-        return diff >= COOLDOWN_MINUTES
-    except Exception as e:
-        print(f"⚠️ Cooldown parse error: {e} -- defaulting to ALLOW (fail-open)")
-        return True
-
-def signal_hash(signal_type: str, entry: float, sl: float) -> str:
-    """Create a fingerprint for a signal to detect duplicates."""
-    return f"{signal_type}_{round(entry, 1)}_{round(sl, 1)}"
 
 # ── Twelve Data fetcher ───────────────────────────────────────────────────────
 def td_get(endpoint: str, **params) -> dict:
@@ -191,7 +170,7 @@ def td_get(endpoint: str, **params) -> dict:
     r.raise_for_status()
     data = r.json()
     if data.get("status") == "error" or ("code" in data and data["code"] != 200):
-        raise ValueError(f"Twelve Data /{endpoint}: {data.get('message', data)}")
+        raise ValueError(f"TwelveData /{endpoint}: {data.get('message', data)}")
     return data
 
 # ── Local indicator calculations ──────────────────────────────────────────────
@@ -263,17 +242,17 @@ def get_h1_trend() -> str:
         avg_older  = sum(closes[5:]) / 5
         diff       = avg_recent - avg_older
         atr_h1     = abs(float(candles[0]["high"]) - float(candles[0]["low"]))
-        if diff > atr_h1 * 0.5:
+        if diff > atr_h1 * 0.3:
             return "bullish"
-        elif diff < -atr_h1 * 0.5:
+        elif diff < -atr_h1 * 0.3:
             return "bearish"
         return "neutral"
     except Exception as e:
-        print(f"H1 trend fetch failed: {e}")
+        print(f"[H1] trend fetch failed: {e}", flush=True)
         return "neutral"
 
 def fetch_market_data() -> dict:
-    print(" -> time_series + H1 trend (2 API calls)")
+    print("[DATA] Fetching time_series + H1 trend...", flush=True)
     price_data = td_get("time_series", outputsize=60)
 
     candles = []
@@ -289,53 +268,38 @@ def fetch_market_data() -> dict:
     candles_asc = list(reversed(candles))
     closes_asc  = [c["close"] for c in candles_asc]
 
-    ema9_asc          = compute_ema(closes_asc, 9)
-    ema21_asc         = compute_ema(closes_asc, 21)
-    rsi_asc           = compute_rsi(closes_asc, 14)
-    atr_asc           = compute_atr(candles_asc, 14)
-    macd_asc, macd_sig_asc = compute_macd(closes_asc)
+    ema9_asc           = compute_ema(closes_asc, 9)
+    ema21_asc          = compute_ema(closes_asc, 21)
+    rsi_asc            = compute_rsi(closes_asc, 14)
+    atr_asc            = compute_atr(candles_asc, 14)
+    macd_asc, macd_sig = compute_macd(closes_asc)
 
-    ema9_val      = round(ema9_asc[-1], 2)
-    ema9_prev     = round(ema9_asc[-2], 2)
-    ema21_val     = round(ema21_asc[-1], 2)
-    ema21_prev    = round(ema21_asc[-2], 2)
-    rsi_val       = round(rsi_asc[-1], 2)
-    rsi_prev      = round(rsi_asc[-2], 2) if len(rsi_asc) >= 2 else rsi_val
-    atr_val       = round(atr_asc[-1], 2)
-    avg_atr       = round(sum(atr_asc[-20:]) / min(20, len(atr_asc)), 2)
-    macd_val      = round(macd_asc[-1], 4)
-    macd_prev_val = round(macd_asc[-2], 4)
-    macd_sig_val  = round(macd_sig_asc[-1], 4)
-    macd_sig_prev = round(macd_sig_asc[-2], 4)
+    h1_trend    = get_h1_trend()
+    entry_price = candles[0]["close"]
 
-    latest   = candles[0]
-    h1_trend = get_h1_trend()
-    print(f"H1 Trend: {h1_trend.upper()}")
-
-    entry_price = latest["close"]
-    print(f"📡 Entry price: {entry_price} (candle close)")
+    print(f"[DATA] Price: {entry_price} | H1: {h1_trend.upper()} | RSI: {round(rsi_asc[-1], 2)}", flush=True)
 
     return {
         "candles":       candles,
         "price":         entry_price,
-        "candle_close":  latest["close"],
+        "candle_close":  candles[0]["close"],
         "prev_close":    candles[1]["close"],
-        "open":          latest["open"],
-        "high":          latest["high"],
-        "low":           latest["low"],
-        "rsi":           rsi_val,
-        "rsi_prev":      rsi_prev,
-        "ema9":          ema9_val,
-        "ema9_prev":     ema9_prev,
-        "ema21":         ema21_val,
-        "ema21_prev":    ema21_prev,
-        "macd":          macd_val,
-        "macd_signal":   macd_sig_val,
-        "macd_prev":     macd_prev_val,
-        "macd_sig_prev": macd_sig_prev,
-        "atr":           atr_val,
-        "avg_atr":       avg_atr,
-        "timestamp":     latest["dt"],
+        "open":          candles[0]["open"],
+        "high":          candles[0]["high"],
+        "low":           candles[0]["low"],
+        "rsi":           round(rsi_asc[-1], 2),
+        "rsi_prev":      round(rsi_asc[-2], 2) if len(rsi_asc) >= 2 else round(rsi_asc[-1], 2),
+        "ema9":          round(ema9_asc[-1], 2),
+        "ema9_prev":     round(ema9_asc[-2], 2),
+        "ema21":         round(ema21_asc[-1], 2),
+        "ema21_prev":    round(ema21_asc[-2], 2),
+        "macd":          round(macd_asc[-1], 4),
+        "macd_signal":   round(macd_sig[-1], 4),
+        "macd_prev":     round(macd_asc[-2], 4),
+        "macd_sig_prev": round(macd_sig[-2], 4),
+        "atr":           round(atr_asc[-1], 2),
+        "avg_atr":       round(sum(atr_asc[-20:]) / min(20, len(atr_asc)), 2),
+        "timestamp":     candles[0]["dt"],
         "h1_trend":      h1_trend,
     }
 
@@ -392,10 +356,10 @@ def find_sr_levels(candles: list, price: float, atr: float) -> dict:
     nearest_res = min(res_levels) if res_levels else round(price + atr * 3, 2)
     nearest_sup = max(sup_levels) if sup_levels else round(price - atr * 3, 2)
     return {
-        "support":          nearest_sup,
-        "resistance":       nearest_res,
-        "near_support":     abs(price - nearest_sup) < atr * 0.5,
-        "near_resistance":  abs(price - nearest_res) < atr * 0.5,
+        "support":         nearest_sup,
+        "resistance":      nearest_res,
+        "near_support":    abs(price - nearest_sup) < atr * 0.5,
+        "near_resistance": abs(price - nearest_res) < atr * 0.5,
     }
 
 def find_sd_zones(candles: list, price: float, atr: float) -> dict:
@@ -433,18 +397,17 @@ def detect_candle_patterns(candles: list, atr: float) -> dict:
     c1 = candles[1]
     c2 = candles[2]
 
-    body0        = abs(c0["close"] - c0["open"])
-    body1        = abs(c1["close"] - c1["open"])
-    range0       = c0["high"] - c0["low"]
-    upper_wick0  = c0["high"] - max(c0["open"], c0["close"])
-    lower_wick0  = min(c0["open"], c0["close"]) - c0["low"]
-    is_bull0     = c0["close"] > c0["open"]
-    is_bull1     = c1["close"] > c1["open"]
-    is_bear0     = c0["close"] < c0["open"]
-    is_bear1     = c1["close"] < c1["open"]
+    body0       = abs(c0["close"] - c0["open"])
+    body1       = abs(c1["close"] - c1["open"])
+    range0      = c0["high"] - c0["low"]
+    upper_wick0 = c0["high"] - max(c0["open"], c0["close"])
+    lower_wick0 = min(c0["open"], c0["close"]) - c0["low"]
+    is_bull0    = c0["close"] > c0["open"]
+    is_bull1    = c1["close"] > c1["open"]
+    is_bear0    = c0["close"] < c0["open"]
 
     bullish_engulfing = (
-        is_bear1 and is_bull0 and
+        not is_bull1 and is_bull0 and
         c0["open"] <= c1["close"] and
         c0["close"] >= c1["open"] and
         body0 > body1
@@ -500,26 +463,13 @@ def check_conditions(d: dict) -> tuple:
     atr     = d["atr"]
     avg_atr = d["avg_atr"]
 
-    print(f"\n{'='*60}")
-    print(f"🔍 SIGNAL ANALYSIS")
-    print(f"{'='*60}")
-    print(f"Price: {price} | RSI: {rsi} | ATR: {atr} | Avg ATR: {avg_atr}")
-    print(f"EMA9: {d['ema9']} | EMA21: {d['ema21']}")
-    print(f"H1 Trend: {d.get('h1_trend', 'neutral').upper()}")
-
     if atr < avg_atr * 0.85:
-        print(f"❌ REJECTED: Low volatility (ATR {atr} < {avg_atr * 0.85:.2f})")
         return None, None, None, 0, {}
 
     structure = detect_market_structure(candles)
     sr        = find_sr_levels(candles, price, atr)
     sd        = find_sd_zones(candles, price, atr)
     cp        = detect_candle_patterns(candles, atr)
-
-    print(f"Structure: {structure.upper()}")
-    print(f"Support: {sr['support']} (near: {sr['near_support']}) | Resistance: {sr['resistance']} (near: {sr['near_resistance']})")
-    print(f"In Demand: {sd['in_demand']} | In Supply: {sd['in_supply']}")
-    print(f"Candle Patterns: {cp['patterns']}")
 
     ema_cross_up   = d["ema9_prev"] < d["ema21_prev"] and d["ema9"] > d["ema21"]
     ema_cross_down = d["ema9_prev"] > d["ema21_prev"] and d["ema9"] < d["ema21"]
@@ -532,19 +482,22 @@ def check_conditions(d: dict) -> tuple:
         sr.get("near_support") or sr.get("near_resistance") or
         sd.get("in_demand")   or sd.get("in_supply")
     ):
-        print(f"❌ REJECTED: Ranging market, no key level nearby")
         return None, None, None, 0, {}
 
+    # ── BUY score ─────────────────────────────────────────────────────────────
     buy_score   = 0
     buy_reasons = []
     buy_data    = {}
 
     if structure == "bullish":
-        buy_score += 2; buy_reasons.append("Bullish market structure (HH+HL)"); buy_data["structure"] = "bullish"
+        buy_score += 2; buy_reasons.append("Bullish market structure (HH+HL)")
+        buy_data["structure"] = "bullish"
     if sr["near_support"]:
-        buy_score += 1; buy_reasons.append(f"Price at key support {sr['support']}"); buy_data["support"] = sr["support"]
+        buy_score += 1; buy_reasons.append(f"Price at key support {sr['support']}")
+        buy_data["support"] = sr["support"]
     if sd["in_demand"]:
-        buy_score += 2; buy_reasons.append("Price inside demand zone"); buy_data["in_demand"] = True
+        buy_score += 2; buy_reasons.append("Price inside demand zone")
+        buy_data["in_demand"] = True
     if cp["bullish_engulfing"] or cp["bullish_pin"]:
         buy_score += 1
         for p in cp["bullish_patterns"]: buy_reasons.append(p)
@@ -552,26 +505,33 @@ def check_conditions(d: dict) -> tuple:
     if cp.get("inside_bar_bull"):
         buy_score += 1; buy_reasons.append("Inside Bar (bullish close)")
     if cp["double_bottom"]:
-        buy_score += 1; buy_reasons.append("Double Bottom"); buy_data["double_bottom"] = True
+        buy_score += 1; buy_reasons.append("Double Bottom confirmed")
+        buy_data["double_bottom"] = True
     if rsi < 45:
-        buy_score += 1; buy_reasons.append(f"RSI {rsi:.1f} oversold"); buy_data["rsi"] = rsi
+        buy_score += 1; buy_reasons.append(f"RSI {rsi:.1f} oversold")
+        buy_data["rsi"] = rsi
     if ema_cross_up or ema_bull:
-        buy_score += 1
         label = "EMA9 crossed above EMA21" if ema_cross_up else "EMA9 above EMA21"
-        buy_reasons.append(label); buy_data["ema"] = label
+        buy_score += 1; buy_reasons.append(label)
+        buy_data["ema"] = label
     if macd_bull:
-        buy_score += 1; buy_reasons.append("MACD bullish crossover"); buy_data["macd"] = "bullish"
+        buy_score += 1; buy_reasons.append("MACD bullish crossover")
+        buy_data["macd"] = "bullish"
 
+    # ── SELL score ────────────────────────────────────────────────────────────
     sell_score   = 0
     sell_reasons = []
     sell_data    = {}
 
     if structure == "bearish":
-        sell_score += 2; sell_reasons.append("Bearish market structure (LL+LH)"); sell_data["structure"] = "bearish"
+        sell_score += 2; sell_reasons.append("Bearish market structure (LL+LH)")
+        sell_data["structure"] = "bearish"
     if sr["near_resistance"]:
-        sell_score += 1; sell_reasons.append(f"Price at key resistance {sr['resistance']}"); sell_data["resistance"] = sr["resistance"]
+        sell_score += 1; sell_reasons.append(f"Price at key resistance {sr['resistance']}")
+        sell_data["resistance"] = sr["resistance"]
     if sd["in_supply"]:
-        sell_score += 2; sell_reasons.append("Price inside supply zone"); sell_data["in_supply"] = True
+        sell_score += 2; sell_reasons.append("Price inside supply zone")
+        sell_data["in_supply"] = True
     if cp["bearish_engulfing"] or cp["bearish_pin"]:
         sell_score += 1
         for p in cp["bearish_patterns"]: sell_reasons.append(p)
@@ -579,54 +539,40 @@ def check_conditions(d: dict) -> tuple:
     if cp.get("inside_bar_bear"):
         sell_score += 1; sell_reasons.append("Inside Bar (bearish close)")
     if cp["double_top"]:
-        sell_score += 1; sell_reasons.append("Double Top"); sell_data["double_top"] = True
+        sell_score += 1; sell_reasons.append("Double Top confirmed")
+        sell_data["double_top"] = True
     if rsi > 55:
-        sell_score += 1; sell_reasons.append(f"RSI {rsi:.1f} overbought"); sell_data["rsi"] = rsi
+        sell_score += 1; sell_reasons.append(f"RSI {rsi:.1f} overbought")
+        sell_data["rsi"] = rsi
     if ema_cross_down or ema_bear:
-        sell_score += 1
         label = "EMA9 crossed below EMA21" if ema_cross_down else "EMA9 below EMA21"
-        sell_reasons.append(label); sell_data["ema"] = label
+        sell_score += 1; sell_reasons.append(label)
+        sell_data["ema"] = label
     if macd_bear:
-        sell_score += 1; sell_reasons.append("MACD bearish crossover"); sell_data["macd"] = "bearish"
+        sell_score += 1; sell_reasons.append("MACD bearish crossover")
+        sell_data["macd"] = "bearish"
 
-    print(f"📊 BUY={buy_score} | SELL={sell_score}")
-
-    # H1 trend SMART filter
+    # ── H1 trend filter ───────────────────────────────────────────────────────
     h1_trend = d.get("h1_trend", "neutral")
     if h1_trend == "bearish" and buy_score > sell_score:
-        in_strong_zone = sd.get("in_demand") or sr.get("near_support")
-        if buy_score >= 6 and in_strong_zone:
-            print(f"⚠️ H1 BEARISH but counter-trend BUY allowed (score {buy_score} + strong zone)")
-        elif buy_score >= 8:
-            print(f"⚠️ H1 BEARISH but counter-trend BUY allowed (score {buy_score})")
-        else:
-            print(f"⛔ H1 BEARISH -- BUY needs ≥6+zone OR ≥8. Got {buy_score}.")
-            buy_score = 0
+        print(f"[FILTER] H1 BEARISH -- BUY blocked (score {buy_score})", flush=True)
+        buy_score = 0
     elif h1_trend == "bullish" and sell_score > buy_score:
-        in_strong_zone = sd.get("in_supply") or sr.get("near_resistance")
-        if sell_score >= 6 and in_strong_zone:
-            print(f"⚠️ H1 BULLISH but counter-trend SELL allowed (score {sell_score} + strong zone)")
-        elif sell_score >= 8:
-            print(f"⚠️ H1 BULLISH but counter-trend SELL allowed (score {sell_score})")
-        else:
-            print(f"⛔ H1 BULLISH -- SELL needs ≥6+zone OR ≥8. Got {sell_score}.")
-            sell_score = 0
+        print(f"[FILTER] H1 BULLISH -- SELL blocked (score {sell_score})", flush=True)
+        sell_score = 0
 
     MIN_SCORE = 5
 
     if buy_score >= sell_score and buy_score >= MIN_SCORE:
         confidence = "HIGH" if buy_score >= 8 else "MEDIUM"
         analysis   = {**buy_data, "sr": sr, "sd": sd, "score": buy_score}
-        print(f"✅ BUY TRIGGERED (score {buy_score}, {confidence})")
         return "BUY", buy_reasons, confidence, buy_score, analysis
 
     if sell_score > buy_score and sell_score >= MIN_SCORE:
         confidence = "HIGH" if sell_score >= 8 else "MEDIUM"
         analysis   = {**sell_data, "sr": sr, "sd": sd, "score": sell_score}
-        print(f"✅ SELL TRIGGERED (score {sell_score}, {confidence})")
         return "SELL", sell_reasons, confidence, sell_score, analysis
 
-    print(f"❌ REJECTED: Max score ({max(buy_score, sell_score)}) < MIN_SCORE ({MIN_SCORE})")
     return None, None, None, 0, {}
 
 # ── Level calculator ──────────────────────────────────────────────────────────
@@ -636,48 +582,40 @@ def calculate_levels(signal_type: str, price: float, atr: float, sr: dict) -> di
     MIN_TP_GAP  = 0.5
 
     if signal_type == "BUY":
-        entry      = price
-        sl_sr      = round(sr.get("support",    price - atr * 1.2) - atr * 0.3, 2)
-        sl_atr     = round(price - atr * 1.2, 2)
-        sl_raw     = max(sl_sr, sl_atr)
-        sl_cap     = round(price - (MAX_SL_PIPS / 10), 2)
-        sl         = round(max(sl_raw, sl_cap), 2)
-        risk       = round(price - sl, 2)
-        tp1        = round(price + risk * 1.0, 2)
-        tp2        = round(price + risk * 2.0, 2)
-        tp3_base   = round(price + risk * 3.0, 2)
-        tp3_sr     = sr.get("resistance", tp3_base)
-        tp3        = round(tp3_sr if tp3_sr > tp2 else tp3_base, 2)
+        entry    = price
+        sl_raw   = max(round(sr.get("support", price - atr * 1.2) - atr * 0.3, 2),
+                       round(price - atr * 1.2, 2))
+        sl       = round(max(sl_raw, round(price - (MAX_SL_PIPS / 10), 2)), 2)
+        risk     = round(price - sl, 2)
+        tp1      = round(price + risk * 1.0, 2)
+        tp2      = round(price + risk * 2.0, 2)
+        tp3_base = round(price + risk * 3.0, 2)
+        tp3      = round(sr.get("resistance", tp3_base) if sr.get("resistance", tp3_base) > tp2 else tp3_base, 2)
     else:
-        entry      = price
-        sl_sr      = round(sr.get("resistance", price + atr * 1.2) + atr * 0.3, 2)
-        sl_atr     = round(price + atr * 1.2, 2)
-        sl_raw     = min(sl_sr, sl_atr)
-        sl_cap     = round(price + (MAX_SL_PIPS / 10), 2)
-        sl         = round(min(sl_raw, sl_cap), 2)
-        risk       = round(sl - price, 2)
-        tp1        = round(price - risk * 1.0, 2)
-        tp2        = round(price - risk * 2.0, 2)
-        tp3_base   = round(price - risk * 3.0, 2)
-        tp3_sr     = sr.get("support", tp3_base)
-        tp3        = round(tp3_sr if tp3_sr < tp2 else tp3_base, 2)
+        entry    = price
+        sl_raw   = min(round(sr.get("resistance", price + atr * 1.2) + atr * 0.3, 2),
+                       round(price + atr * 1.2, 2))
+        sl       = round(min(sl_raw, round(price + (MAX_SL_PIPS / 10), 2)), 2)
+        risk     = round(sl - price, 2)
+        tp1      = round(price - risk * 1.0, 2)
+        tp2      = round(price - risk * 2.0, 2)
+        tp3_base = round(price - risk * 3.0, 2)
+        tp3      = round(sr.get("support", tp3_base) if sr.get("support", tp3_base) < tp2 else tp3_base, 2)
 
     actual_risk = round(abs(entry - sl), 2)
 
     if actual_risk > (MAX_SL_PIPS / 10):
-        return {"blocked": True, "reason": f"SL {actual_risk*10:.1f} pips exceeds {MAX_SL_PIPS} pip cap"}
+        return {"blocked": True, "reason": f"SL {actual_risk*10:.1f} pips > {MAX_SL_PIPS} pip cap"}
 
     tp2_rr = round(abs(tp2 - entry) / actual_risk, 2) if actual_risk > 0 else 0
     if tp2_rr < MIN_RR:
         return {"blocked": True, "reason": f"R:R {tp2_rr} at TP2 below 1:{MIN_RR}"}
 
     if abs(tp2 - tp1) < MIN_TP_GAP or abs(tp3 - tp2) < MIN_TP_GAP:
-        return {"blocked": True, "reason": "TP levels too close -- ATR too small"}
+        return {"blocked": True, "reason": "TP levels too close"}
 
-    return {
-        "blocked": False, "entry": entry, "sl": sl,
-        "tp1": tp1, "tp2": tp2, "tp3": tp3, "risk": actual_risk
-    }
+    return {"blocked": False, "entry": entry, "sl": sl,
+            "tp1": tp1, "tp2": tp2, "tp3": tp3, "risk": actual_risk}
 
 # ── AI signal message generator ───────────────────────────────────────────────
 def generate_signal_message(signal_type: str, d: dict, confidence: str,
@@ -690,8 +628,8 @@ def generate_signal_message(signal_type: str, d: dict, confidence: str,
     levels = calculate_levels(signal_type, price, atr, sr)
 
     if levels["blocked"]:
-        print(f"Signal blocked -- {levels['reason']}")
-        return None, None
+        print(f"[BLOCK] {levels['reason']}", flush=True)
+        return None
 
     entry = levels["entry"]
     sl    = levels["sl"]
@@ -702,7 +640,6 @@ def generate_signal_message(signal_type: str, d: dict, confidence: str,
     confidence_emoji = "🔥" if confidence == "HIGH" else "⚡"
     direction_emoji  = "📈" if signal_type == "BUY" else "📉"
 
-    zone_note = ""
     if signal_type == "BUY" and sd.get("in_demand"):
         zone_note = "masuk dalam demand zone"
     elif signal_type == "SELL" and sd.get("in_supply"):
@@ -713,8 +650,6 @@ def generate_signal_message(signal_type: str, d: dict, confidence: str,
         zone_note = f"reject dari resistance {sr['resistance']}"
     else:
         zone_note = "confluence kuat"
-
-    rsi_note = f"RSI {d['rsi']:.0f}"
 
     prompt = f"""Kau trader Malaysia yang casual. Tulis signal Telegram dalam Manglish/BM pasar.
 
@@ -728,7 +663,7 @@ TEMPLATE WAJIB -- JANGAN UBAH NOMBOR LANGSUNG:
 ▸ TP2   : {tp2}
 ▸ TP3   : {tp3}
 
-[TULIS 1 AYAT SAHAJA -- casual, hype, pasal setup ni. Sebut {zone_note} dan {rsi_note}. Contoh: "Setup power gila, {zone_note} confirm! {rsi_note} pun sokong 🔥🚀"]
+[TULIS 1 AYAT SAHAJA -- casual, hype, pasal setup ni. Sebut {zone_note} dan RSI {d['rsi']:.0f}. Contoh style: "Setup power gila, {zone_note} confirm! RSI pun sokong 🔥🚀"]
 
 Jom tekan okay! 👌
 ⚠️ Bukan nasihat kewangan.
@@ -751,8 +686,7 @@ Output MESEJ SAHAJA. Tiada teks lain."""
         timeout=30,
     )
     response.raise_for_status()
-    msg = response.json()["content"][0]["text"].strip()
-    return msg, levels
+    return response.json()["content"][0]["text"].strip()
 
 # ── Telegram sender ────────────────────────────────────────────────────────────
 def send_to_telegram(message: str):
@@ -762,53 +696,51 @@ def send_to_telegram(message: str):
         "text":       message,
         "parse_mode": "HTML",
     }, timeout=15)
-    print(f"📡 Telegram status: {r.status_code}")
     r.raise_for_status()
+    print(f"[TG] Sent ✅ status={r.status_code}", flush=True)
 
-# ── Open signals management ───────────────────────────────────────────────────
-def load_open_signals() -> list:
-    try:
-        with open(OPEN_SIGNALS_FILE) as f:
-            signals = json.load(f)
-        if signals:
-            return signals
-    except (FileNotFoundError, json.JSONDecodeError):
-        pass
-    return load_open_signals_github()
-
-def save_open_signals(signals: list):
-    save_open_signals_github(signals)
-
-def update_open_signals(current_price: float) -> list:
+# ── Update open signals with current price ────────────────────────────────────
+def update_open_signals(current_price: float):
     signals = load_open_signals()
-    updated = []
-    for sig in signals:
-        direction = sig.get("type", "BUY")
-        sl        = sig.get("sl")
-        tp3       = sig.get("tp3")
-        tp2       = sig.get("tp2")
-        tp1       = sig.get("tp1")
-        result    = sig.get("result", "open")
+    changed = False
 
-        if result != "open":
-            updated.append(sig)
+    for sig in signals:
+        if sig.get("status") in ("closed", "sl_hit"):
             continue
 
+        direction = sig.get("type", "BUY")
+        sl  = sig.get("sl")
+        tp3 = sig.get("tp3")
+        tp2 = sig.get("tp2")
+        tp1 = sig.get("tp1")
+
+        prev_status = sig.get("status", "open")
+
         if direction == "BUY":
-            if current_price <= sl:    sig["result"] = "SL"
-            elif current_price >= tp3: sig["result"] = "TP3"
-            elif current_price >= tp2: sig["result"] = "TP2"
-            elif current_price >= tp1: sig["result"] = "TP1"
+            if current_price <= sl:
+                sig["status"] = "sl_hit"; sig["sl_hit"] = True; sig["result"] = "SL"
+            elif current_price >= tp3:
+                sig["status"] = "closed"; sig["tp3_hit"] = True; sig["tp2_hit"] = True; sig["tp1_hit"] = True
+            elif current_price >= tp2:
+                sig["tp2_hit"] = True; sig["tp1_hit"] = True
+            elif current_price >= tp1:
+                sig["tp1_hit"] = True
         else:
-            if current_price >= sl:    sig["result"] = "SL"
-            elif current_price <= tp3: sig["result"] = "TP3"
-            elif current_price <= tp2: sig["result"] = "TP2"
-            elif current_price <= tp1: sig["result"] = "TP1"
+            if current_price >= sl:
+                sig["status"] = "sl_hit"; sig["sl_hit"] = True; sig["result"] = "SL"
+            elif current_price <= tp3:
+                sig["status"] = "closed"; sig["tp3_hit"] = True; sig["tp2_hit"] = True; sig["tp1_hit"] = True
+            elif current_price <= tp2:
+                sig["tp2_hit"] = True; sig["tp1_hit"] = True
+            elif current_price <= tp1:
+                sig["tp1_hit"] = True
 
-        updated.append(sig)
+        if sig.get("status") != prev_status:
+            changed = True
+            print(f"[UPDATE] Signal {sig.get('id','?')} → {sig.get('status')}", flush=True)
 
-    save_open_signals(updated)
-    return updated
+    if changed:
+        save_open_signals(signals)
 
 # ── Daily morning update ───────────────────────────────────────────────────────
 def generate_morning_update(d: dict) -> str:
@@ -820,10 +752,11 @@ def generate_morning_update(d: dict) -> str:
     sign       = "+" if change >= 0 else ""
     date_str   = datetime.now(timezone.utc).strftime("%A, %d %B %Y")
 
-    candles         = d["candles"]
-    structure       = detect_market_structure(candles)
-    sr              = find_sr_levels(candles, price, d["atr"])
-    sd              = find_sd_zones(candles, price, d["atr"])
+    candles   = d["candles"]
+    structure = detect_market_structure(candles)
+    sr        = find_sr_levels(candles, price, d["atr"])
+    sd        = find_sd_zones(candles, price, d["atr"])
+
     structure_label = {
         "bullish": "Bullish (Menaik) ⬆️",
         "bearish": "Bearish (Menurun) ⬇️",
@@ -861,11 +794,7 @@ Write a daily morning market update using EXACTLY this format:
 🧭 Bias: {structure_label}
 ━━━━━━━━━━━━━━━━━━━━━
 📝 Today's Outlook:
-[Write exactly 3 sharp sentences in English:
-1. Comment on current market structure and momentum.
-2. Highlight the most important S&R and S&D levels to watch today.
-3. Give a clear actionable bias -- buy dips, sell rallies, or wait for breakout.
-Keep it professional and concise.]
+[Write exactly 3 sharp sentences in English about current structure, key levels, and actionable bias.]
 
 🕐 Sessions Today (MYT):
 🌏 Asia: 08:00 - 16:00
@@ -875,7 +804,7 @@ Keep it professional and concise.]
 ⚠️ Not financial advice. Trade responsibly.
 🔔 MTU Premium | XAUUSD Signals
 
-Output ONLY the message. No preamble or extra text."""
+Output ONLY the message."""
 
     response = requests.post(
         "https://api.anthropic.com/v1/messages",
@@ -894,77 +823,65 @@ Output ONLY the message. No preamble or extra text."""
     response.raise_for_status()
     return response.json()["content"][0]["text"].strip()
 
+# ── Morning update tracker (Railway persistent) ───────────────────────────────
+_MORNING_UPDATE_FILE = str(_DATA_DIR / "morning_update.json")
 
-def morning_update():
+def morning_already_sent() -> bool:
+    try:
+        with open(_MORNING_UPDATE_FILE) as f:
+            data = json.load(f)
+        return data.get("date") == str(date.today())
+    except:
+        return False
+
+def mark_morning_sent():
+    with open(_MORNING_UPDATE_FILE, "w") as f:
+        json.dump({"date": str(date.today())}, f)
+
+def maybe_send_morning_update(data: dict):
+    """Send morning update once per day at 00:00 UTC (08:00 MYT)."""
     now_utc = datetime.now(timezone.utc)
-    print(f"[{now_utc.strftime('%Y-%m-%d %H:%M')} UTC] Morning update running...")
+    if now_utc.hour == 0 and not morning_already_sent():
+        print("[MORNING] Sending daily outlook...", flush=True)
+        try:
+            message = generate_morning_update(data)
+            send_to_telegram(message)
+            mark_morning_sent()
+            print("[MORNING] Sent ✅", flush=True)
+        except Exception as e:
+            print(f"[MORNING] Failed: {e}", flush=True)
 
-    if now_utc.weekday() in (5, 6):
-        print("Weekend -- skip morning update.")
-        return
-
-    try:
-        data = fetch_market_data()
-        print(f"✅ Price: {data['price']} | RSI: {data['rsi']} | ATR: {data['atr']}")
-    except Exception as e:
-        print(f"❌ Data fetch failed: {e}")
-        return
-
-    try:
-        message = generate_morning_update(data)
-        print(f"✅ Message generated ({len(message)} chars)")
-    except Exception as e:
-        print(f"❌ AI generation failed: {e}")
-        return
-
-    print("-" * 50); print(message); print("-" * 50)
-
-    try:
-        send_to_telegram(message)
-        print("✅ Morning update sent!")
-    except Exception as e:
-        print(f"❌ Telegram send failed: {e}")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# MAIN SIGNAL LOOP
-# ══════════════════════════════════════════════════════════════════════════════
+# ── Main signal logic (single run) ───────────────────────────────────────────
 def main():
     now_utc     = datetime.now(timezone.utc)
     utc_hour    = now_utc.hour
     utc_weekday = now_utc.weekday()
-    session     = get_current_session(utc_hour)
+    session     = get_current_session(utc_hour, utc_weekday)
 
-    print(f"\n[{now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC] Bot running...")
-    print(f"Session: {session}")
+    print(f"\n[{now_utc.strftime('%Y-%m-%d %H:%M')} UTC] Session: {session}", flush=True)
 
     if not is_active_hours(utc_hour, utc_weekday):
-        if utc_weekday in (5, 6):
-            print("Weekend -- bot resting.")
-        else:
-            print("Off-hours (2AM-7AM MYT). Bot resting.")
+        reason = "Weekend" if utc_weekday in (5, 6) else "Off-hours"
+        print(f"[SKIP] {reason} -- bot resting.", flush=True)
         return
 
-    # ── STEP 1: Load state (GitHub-first) ─────────────────────────────────────
     state = load_state()
 
     if state["count"] >= MAX_SIGNALS_PER_DAY:
-        print(f"⏹️ Daily limit reached ({MAX_SIGNALS_PER_DAY}).")
+        print(f"[SKIP] Daily limit reached ({MAX_SIGNALS_PER_DAY}).", flush=True)
         return
 
-    # ── STEP 2: Cooldown check (HARD GATE) ────────────────────────────────────
     if not cooldown_ok(state):
         last = state.get("last_signal_utc", "")
-        try:
-            diff = (datetime.now(timezone.utc) - datetime.fromisoformat(last)).total_seconds() / 60
-            print(f"⏳ Cooldown active -- {diff:.1f}/{COOLDOWN_MINUTES} min elapsed. SKIP.")
-        except:
-            print(f"⏳ Cooldown active -- SKIP.")
+        diff = round((datetime.now(timezone.utc) -
+                      datetime.fromisoformat(last)).total_seconds() / 60, 1)
+        print(f"[SKIP] Cooldown active ({diff}/{COOLDOWN_MINUTES} min).", flush=True)
         return
 
-    # ── STEP 3: Consecutive SL protection ─────────────────────────────────────
+    # Consecutive SL protection
     recent_signals = load_open_signals()
-    recent_closed  = [s for s in recent_signals if s.get("result") != "open"][-5:]
+    recent_closed  = [s for s in recent_signals
+                      if s.get("status") in ("closed", "sl_hit")][-5:]
     consecutive_sl = 0
     for sig in reversed(recent_closed):
         if sig.get("result") == "SL":
@@ -972,126 +889,131 @@ def main():
         else:
             break
     if consecutive_sl >= 3:
-        last_sl_time = recent_closed[-1].get("sent_at", "")
-        if last_sl_time:
+        last_time = recent_closed[-1].get("opened_utc") or recent_closed[-1].get("sent_at", "")
+        if last_time:
             try:
                 elapsed = (datetime.now(timezone.utc) -
-                           datetime.fromisoformat(last_sl_time)).total_seconds() / 3600
+                           datetime.fromisoformat(last_time)).total_seconds() / 3600
                 if elapsed < 2.0:
-                    print(f"⛔ 3 consecutive SL -- pausing 2h (elapsed: {elapsed:.1f}h)")
+                    print(f"[SKIP] 3 consecutive SL -- cooling down ({elapsed:.1f}h/2h).", flush=True)
                     return
             except:
                 pass
 
-    # ── STEP 4: Fetch + analyze ───────────────────────────────────────────────
+    # Fetch data
     try:
         data = fetch_market_data()
     except Exception as e:
-        print(f"❌ Market data fetch failed: {e}")
+        print(f"[ERROR] Market data: {e}", flush=True)
         return
 
+    # Morning update check
+    maybe_send_morning_update(data)
+
+    # Update existing open signals
     update_open_signals(data["price"])
 
+    # Check conditions
     signal_type, reasons, confidence, score, analysis = check_conditions(data)
 
     if not signal_type:
-        print("No signal -- conditions not met.")
+        print(f"[NO SIGNAL] Score too low or no confluence.", flush=True)
         return
 
-    print(f"🎯 Signal: {signal_type} | Score: {score} | {confidence}")
+    print(f"[SIGNAL] {signal_type} | Score: {score} | Confidence: {confidence}", flush=True)
+    print(f"[REASONS] {' | '.join(reasons)}", flush=True)
 
-    # ── STEP 5: Generate message + levels ─────────────────────────────────────
+    # Generate message
     try:
-        message, levels = generate_signal_message(
+        message = generate_signal_message(
             signal_type, data, confidence, session, reasons, score, analysis
         )
     except Exception as e:
-        print(f"❌ Message generation failed: {e}")
+        print(f"[ERROR] AI generation: {e}", flush=True)
         return
 
-    if not message or not levels:
-        print("Signal blocked by level validator.")
+    if not message:
+        print("[BLOCK] Signal blocked by level validator.", flush=True)
         return
 
-    # ── STEP 6: DEDUP CHECK -- prevent duplicate signals ──────────────────────
-    new_hash = signal_hash(signal_type, levels["entry"], levels["sl"])
-    last_hash = state.get("last_signal_hash")
-    if last_hash == new_hash:
-        print(f"⛔ DUPLICATE signal detected (hash {new_hash} matches last). SKIP.")
-        return
-    print(f"🔑 Signal hash: {new_hash} (prev: {last_hash})")
+    print("-" * 60, flush=True)
+    print(message, flush=True)
+    print("-" * 60, flush=True)
 
-    # ── STEP 7: ATOMIC STATE UPDATE -- write BEFORE telegram ──────────────────
-    # Critical: update state FIRST so concurrent runs see the cooldown.
-    # If telegram fails, we'll skip but cooldown protects against duplicate retries.
-    state["count"]           += 1
-    state["last_signal_utc"]  = datetime.now(timezone.utc).isoformat()
-    state["last_signal_hash"] = new_hash
-    save_state(state)
-    print(f"💾 State saved BEFORE telegram (count {state['count']}/{MAX_SIGNALS_PER_DAY})")
-
-    # ── STEP 8: Print + send ──────────────────────────────────────────────────
-    print("-" * 50); print(message); print("-" * 50)
-
+    # Send to Telegram
     try:
         send_to_telegram(message)
-        print("✅ Signal sent to Telegram!")
     except Exception as e:
-        print(f"❌ Telegram send failed: {e}")
+        print(f"[ERROR] Telegram: {e}", flush=True)
         return
 
-    # ── STEP 9: Save signal to open_signals.json ──────────────────────────────
-    new_signal = {
-        "type":     signal_type,
-        "entry":    levels["entry"],
-        "sl":       levels["sl"],
-        "tp1":      levels["tp1"],
-        "tp2":      levels["tp2"],
-        "tp3":      levels["tp3"],
-        "result":   "open",
-        "score":    score,
-        "sent_at":  datetime.now(timezone.utc).isoformat(),
-        "session":  session,
-    }
-    open_signals = load_open_signals()
-    open_signals.append(new_signal)
-    save_open_signals(open_signals)
-    print(f"📝 Signal logged. Count today: {state['count']}/{MAX_SIGNALS_PER_DAY}")
+    # Save signal
+    sr     = analysis.get("sr", {})
+    levels = calculate_levels(signal_type, data["price"], data["atr"], sr)
+    if not levels.get("blocked"):
+        now_iso  = datetime.now(timezone.utc).isoformat()
+        sig_id   = now_utc.strftime("%Y%m%d%H%M")
+        new_sig  = {
+            "id":                 sig_id,
+            "type":               signal_type,
+            "entry":              levels["entry"],
+            "sl":                 levels["sl"],
+            "tp1":                levels["tp1"],
+            "tp2":                levels["tp2"],
+            "tp3":                levels["tp3"],
+            "confidence":         confidence,
+            "session":            session,
+            "status":             "open",
+            "tp1_hit":            False,
+            "tp2_hit":            False,
+            "tp3_hit":            False,
+            "sl_hit":             False,
+            "last_notified_profit": 0.0,
+            "opened_utc":         now_iso,
+            "result":             "open",
+        }
+        open_signals = load_open_signals()
+        open_signals.append(new_sig)
+        save_open_signals(open_signals)
+        print(f"[SAVED] Signal {sig_id} saved.", flush=True)
 
+    # Update state
+    state["count"]          += 1
+    state["last_signal_utc"] = datetime.now(timezone.utc).isoformat()
+    save_state(state)
+    print(f"[STATE] Signals today: {state['count']}/{MAX_SIGNALS_PER_DAY}", flush=True)
 
-# ── Entry point ───────────────────────────────────────────────────────────────
+# ── Entry point -- Railway persistent loop ────────────────────────────────────
 if __name__ == "__main__":
+    # Support CLI args for manual triggers
+    if len(sys.argv) > 1:
+        if sys.argv[1] == "morning":
+            print("[CLI] Manual morning update...", flush=True)
+            try:
+                data = fetch_market_data()
+                msg  = generate_morning_update(data)
+                send_to_telegram(msg)
+                print("[CLI] Morning update sent.", flush=True)
+            except Exception as e:
+                print(f"[CLI] Error: {e}", flush=True)
+            sys.exit(0)
 
-    if len(sys.argv) > 1 and sys.argv[1] == "morning":
-        morning_update()
-        sys.exit(0)
+        elif sys.argv[1] == "weekly":
+            print("[CLI] Weekly report -- not yet implemented.", flush=True)
+            sys.exit(0)
 
-    if len(sys.argv) > 1 and sys.argv[1] == "weekly":
-        sys.exit(0)
-
-    # GitHub Actions mode: run once and exit
-    if os.environ.get("GITHUB_ACTIONS") == "true":
-        print("🤖 GitHub Actions mode -- single run")
-        try:
-            main()
-        except Exception as e:
-            print(f"main() crashed: {e}")
-            import traceback
-            traceback.print_exc()
-        sys.exit(0)
-
-    # Railway / local mode: infinite loop
-    now_utc = datetime.now(timezone.utc)
-    if now_utc.hour == 0 and now_utc.minute < 5:
-        morning_update()
+    # ── Persistent loop (Railway) ─────────────────────────────────────────────
+    print("[BOT] MTU Premium Signal Bot starting... 🚀", flush=True)
+    print(f"[BOT] Max signals/day: {MAX_SIGNALS_PER_DAY} | Cooldown: {COOLDOWN_MINUTES}min", flush=True)
 
     while True:
         try:
             main()
         except Exception as e:
-            print(f"main() crashed: {e}")
+            print(f"[CRASH] main() error: {e}", flush=True)
 
         now_utc    = datetime.now(timezone.utc)
         sleep_secs = get_fetch_interval(now_utc.hour)
-        print(f"Sleeping {sleep_secs}s until next check...")
+        next_check = (datetime.now(timezone.utc) + timedelta(seconds=sleep_secs)).strftime("%H:%M UTC")
+        print(f"[SLEEP] {sleep_secs}s -- next check ~{next_check}", flush=True)
         time.sleep(sleep_secs)
