@@ -1,16 +1,21 @@
 # -*- coding: utf-8 -*-
 # MTU Premium Signal Dashboard
-# Runs as a simple web server on Railway alongside the bot
+# Railway Edition: reads from /data volume first, GitHub as fallback
 
 import os
 import json
+import pathlib
 import requests
 from datetime import datetime, timezone, timedelta
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 GITHUB_REPO  = os.environ.get("GITHUB_REPO", "Isyrafimran25/MTUPremiumSignal")
-PORT = int(os.environ.get("PORT", os.environ.get("RAILWAY_PORT", "8080")))
+PORT         = int(os.environ.get("PORT", "8080"))
+
+# ── Data dir -- same as bot ───────────────────────────────────────────────────
+_DATA_DIR         = pathlib.Path("/data") if pathlib.Path("/data").exists() else pathlib.Path(".")
+OPEN_SIGNALS_FILE = str(_DATA_DIR / "open_signals.json")
 
 
 def github_get_file(filename: str) -> str:
@@ -31,6 +36,16 @@ def github_get_file(filename: str) -> str:
 
 
 def load_signals() -> list:
+    # Try /data volume first (freshest data, written by bot directly)
+    try:
+        with open(OPEN_SIGNALS_FILE) as f:
+            data = json.load(f)
+        if data:
+            return data
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+
+    # Fallback to GitHub
     content = github_get_file("open_signals.json")
     if content:
         try:
@@ -47,9 +62,9 @@ def calc_stats(signals: list) -> dict:
     best_trade = worst_trade = None
     best_pips = worst_pips = 0.0
 
-    weekly = []
-    now = datetime.now(timezone.utc)
+    now      = datetime.now(timezone.utc)
     week_ago = now - timedelta(days=7)
+    weekly   = []
 
     for s in signals:
         try:
@@ -90,7 +105,7 @@ def calc_stats(signals: list) -> dict:
         else:
             open_count += 1
 
-    closed = wins + losses
+    closed   = wins + losses
     win_rate = round(wins / closed * 100, 1) if closed > 0 else 0
     net_pips = round(win_pips - loss_pips, 1)
 
@@ -99,7 +114,7 @@ def calc_stats(signals: list) -> dict:
         "open": open_count, "win_rate": win_rate,
         "win_pips": round(win_pips, 1), "loss_pips": round(loss_pips, 1),
         "net_pips": net_pips, "weekly_count": len(weekly),
-        "best_trade": best_trade or "N/A",
+        "best_trade":  best_trade  or "N/A",
         "worst_trade": worst_trade or "N/A",
     }
 
@@ -108,38 +123,35 @@ def render_signal_row(s: dict) -> str:
     status    = s.get("status", "open")
     direction = s.get("type", "BUY")
     entry     = s.get("entry", 0)
-    opened    = s.get("opened_utc", "")[:16].replace("T", " ")
     conf      = s.get("confidence", "")
 
-    # MYT time
     try:
         dt_utc = datetime.fromisoformat(s.get("opened_utc", ""))
         dt_myt = dt_utc + timedelta(hours=8)
         opened = dt_myt.strftime("%d %b %H:%M MYT")
     except:
-        pass
+        opened = s.get("opened_utc", "")[:16].replace("T", " ")
 
     status_map = {
-        "closed":   ('<span class="badge win">TP3</span>', "win-row"),
-        "tp2_hit":  ('<span class="badge win">TP2</span>', "win-row"),
-        "tp1_hit":  ('<span class="badge win">TP1</span>', "win-row"),
-        "sl_hit":   ('<span class="badge loss">SL</span>', "loss-row"),
-        "open":     ('<span class="badge open">Open</span>', ""),
+        "closed":  ('<span class="badge win">TP3</span>',  "win-row"),
+        "tp2_hit": ('<span class="badge win">TP2</span>',  "win-row"),
+        "tp1_hit": ('<span class="badge win">TP1</span>',  "win-row"),
+        "sl_hit":  ('<span class="badge loss">SL</span>',  "loss-row"),
+        "open":    ('<span class="badge open">Open</span>', ""),
     }
-    badge, row_class = status_map.get(status, ('', ''))
+    badge, row_class = status_map.get(status, ("", ""))
 
-    dir_badge = f'<span class="badge {"buy" if direction=="BUY" else "sell"}">{direction}</span>'
-    conf_badge = f'<span class="badge {"high" if conf=="HIGH" else "med"}">{conf}</span>' if conf else ""
+    dir_badge  = f'<span class="badge {"buy" if direction == "BUY" else "sell"}">{direction}</span>'
+    conf_badge = f'<span class="badge {"high" if conf == "HIGH" else "med"}">{conf}</span>' if conf else ""
 
-    # Calculate pips result
     if status == "closed":
-        result_pips = f'+{round(abs(s.get("tp3",entry)-entry)*10,1)}'
+        result_pips = f'+{round(abs(s.get("tp3", entry) - entry) * 10, 1)}'
     elif status == "tp2_hit":
-        result_pips = f'+{round(abs(s.get("tp2",entry)-entry)*10,1)}'
+        result_pips = f'+{round(abs(s.get("tp2", entry) - entry) * 10, 1)}'
     elif status == "tp1_hit":
-        result_pips = f'+{round(abs(s.get("tp1",entry)-entry)*10,1)}'
+        result_pips = f'+{round(abs(s.get("tp1", entry) - entry) * 10, 1)}'
     elif status == "sl_hit":
-        result_pips = f'-{round(abs(s.get("sl",entry)-entry)*10,1)}'
+        result_pips = f'-{round(abs(s.get("sl", entry) - entry) * 10, 1)}'
     else:
         result_pips = "Running..."
 
@@ -148,8 +160,8 @@ def render_signal_row(s: dict) -> str:
         <td>{opened}</td>
         <td>{dir_badge} {conf_badge}</td>
         <td>{entry}</td>
-        <td>{s.get("sl","")}</td>
-        <td>{s.get("tp1","")} / {s.get("tp2","")} / {s.get("tp3","")}</td>
+        <td>{s.get("sl", "")}</td>
+        <td>{s.get("tp1", "")} / {s.get("tp2", "")} / {s.get("tp3", "")}</td>
         <td><strong>{result_pips}</strong></td>
         <td>{badge}</td>
     </tr>'''
@@ -160,15 +172,11 @@ def build_html() -> str:
     stats   = calc_stats(signals)
     now_myt = (datetime.now(timezone.utc) + timedelta(hours=8)).strftime("%d %b %Y %H:%M MYT")
 
-    # Color for net pips
     net_color = "#22c55e" if stats["net_pips"] >= 0 else "#ef4444"
     net_sign  = "+" if stats["net_pips"] >= 0 else ""
+    wr        = stats["win_rate"]
+    wr_color  = "#22c55e" if wr >= 60 else "#f59e0b" if wr >= 45 else "#ef4444"
 
-    # Win rate color
-    wr = stats["win_rate"]
-    wr_color = "#22c55e" if wr >= 60 else "#f59e0b" if wr >= 45 else "#ef4444"
-
-    # Signal rows -- latest first
     rows = "".join(render_signal_row(s) for s in reversed(signals[-50:]))
     if not rows:
         rows = '<tr><td colspan="7" style="text-align:center;padding:2rem;color:#888">No signals yet</td></tr>'
@@ -178,6 +186,7 @@ def build_html() -> str:
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="refresh" content="60">
 <title>MTU Premium | Signal Dashboard</title>
 <style>
   * {{ box-sizing: border-box; margin: 0; padding: 0; }}
@@ -227,11 +236,10 @@ def build_html() -> str:
 <div class="header">
   <div>
     <h1>MTU Premium Signal Dashboard</h1>
-    <p>XAUUSD Scalping Signals | Updated: {now_myt}</p>
+    <p>XAUUSD Scalping Signals &nbsp;|&nbsp; Auto-refresh every 60s &nbsp;|&nbsp; Updated: {now_myt}</p>
   </div>
 </div>
 <div class="container">
-
   <div class="stats-grid">
     <div class="stat-card">
       <div class="label">Total Signals</div>
@@ -258,6 +266,10 @@ def build_html() -> str:
       <div class="value" style="color:#fbbf24">{stats["open"]}</div>
     </div>
     <div class="stat-card">
+      <div class="label">This Week</div>
+      <div class="value gold">{stats["weekly_count"]}</div>
+    </div>
+    <div class="stat-card">
       <div class="label">Best Trade</div>
       <div class="value" style="font-size:0.9rem;color:#22c55e">{stats["best_trade"]}</div>
     </div>
@@ -272,35 +284,33 @@ def build_html() -> str:
     <table>
       <thead>
         <tr>
-          <th>Time</th>
+          <th>Time (MYT)</th>
           <th>Direction</th>
           <th>Entry</th>
           <th>SL</th>
           <th>TP1 / TP2 / TP3</th>
-          <th>Result</th>
+          <th>Result (pips)</th>
           <th>Status</th>
         </tr>
       </thead>
       <tbody>{rows}</tbody>
     </table>
   </div>
-
 </div>
-<div class="footer">
-  MTU Premium | XAUUSD Signals | Not financial advice
-</div>
+<div class="footer">MTU Premium | XAUUSD Signals | Not financial advice</div>
 </body>
 </html>'''
 
 
 class DashboardHandler(BaseHTTPRequestHandler):
     def do_GET(self):
-        html = build_html()
+        html  = build_html()
+        data  = html.encode("utf-8")
         self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.send_header("Content-Length", str(len(html.encode("utf-8"))))
+        self.send_header("Content-Type",   "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
         self.end_headers()
-        self.wfile.write(html.encode("utf-8"))
+        self.wfile.write(data)
 
     def log_message(self, format, *args):
         pass  # suppress access logs
@@ -308,12 +318,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     import sys
-    print(f"Dashboard starting on port {PORT}...", flush=True)
-    print(f"Python version: {sys.version}", flush=True)
+    print(f"[DASH] Dashboard starting on port {PORT}...", flush=True)
+    print(f"[DASH] Data source: {_DATA_DIR}", flush=True)
     try:
         server = HTTPServer(("0.0.0.0", PORT), DashboardHandler)
-        print(f"Dashboard live at http://0.0.0.0:{PORT}", flush=True)
+        print(f"[DASH] Live at http://0.0.0.0:{PORT} ✅", flush=True)
         server.serve_forever()
     except Exception as e:
-        print(f"Server error: {e}", flush=True)
+        print(f"[DASH] Server error: {e}", flush=True)
         raise
