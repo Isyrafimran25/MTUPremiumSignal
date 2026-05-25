@@ -1960,10 +1960,12 @@
     "tp1": 4529.12,
     "tp2": 4524.12,
     "tp3": 4519.12,
-    "result": "TP1",
+    "result": "SL",
     "score": 5,
     "sent_at": "2026-05-21T03:47:27.826467+00:00",
-    "session": "Asia"
+    "session": "Asia",
+    "status": "sl_hit",
+    "sl_hit": true
   },
   {
     "type": "BUY",
@@ -1975,7 +1977,11 @@
     "result": "SL",
     "score": 5,
     "sent_at": "2026-05-21T08:50:16.186246+00:00",
-    "session": "London"
+    "session": "London",
+    "status": "closed",
+    "tp3_hit": true,
+    "tp2_hit": true,
+    "tp1_hit": true
   },
   {
     "type": "SELL",
@@ -1984,10 +1990,12 @@
     "tp1": 4509.54,
     "tp2": 4504.54,
     "tp3": 4499.54,
-    "result": "TP1",
+    "result": "SL",
     "score": 5,
     "sent_at": "2026-05-21T11:28:02.911726+00:00",
-    "session": "London"
+    "session": "London",
+    "status": "sl_hit",
+    "sl_hit": true
   },
   {
     "type": "BUY",
@@ -1999,7 +2007,11 @@
     "result": "SL",
     "score": 7,
     "sent_at": "2026-05-22T04:02:04.816315+00:00",
-    "session": "Asia"
+    "session": "Asia",
+    "status": "closed",
+    "tp3_hit": true,
+    "tp2_hit": true,
+    "tp1_hit": true
   },
   {
     "type": "BUY",
@@ -2011,7 +2023,11 @@
     "result": "SL",
     "score": 5,
     "sent_at": "2026-05-22T05:37:17.161754+00:00",
-    "session": "Asia"
+    "session": "Asia",
+    "status": "closed",
+    "tp3_hit": true,
+    "tp2_hit": true,
+    "tp1_hit": true
   },
   {
     "type": "SELL",
@@ -2023,7 +2039,9 @@
     "result": "SL",
     "score": 5,
     "sent_at": "2026-05-22T07:42:06.953209+00:00",
-    "session": "Asia / London"
+    "session": "Asia / London",
+    "status": "sl_hit",
+    "sl_hit": true
   },
   {
     "type": "BUY",
@@ -2035,7 +2053,11 @@
     "result": "SL",
     "score": 5,
     "sent_at": "2026-05-22T12:47:33.440593+00:00",
-    "session": "London"
+    "session": "London",
+    "status": "closed",
+    "tp3_hit": true,
+    "tp2_hit": true,
+    "tp1_hit": true
   },
   {
     "type": "BUY",
@@ -2047,6 +2069,10 @@
     "result": "SL",
     "score": 5,
     "sent_at": "2026-05-22T16:31:16.586529+00:00",
-    "session": "New York"
+    "session": "New York",
+    "status": "closed",
+    "tp3_hit": true,
+    "tp2_hit": true,
+    "tp1_hit": true
   }
 ]
