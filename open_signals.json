@@ -2085,13 +2085,13 @@
     "tp3": 4570.93,
     "confidence": "MEDIUM",
     "session": "Asia",
-    "status": "open",
+    "status": "sl_hit",
     "tp1_hit": false,
     "tp2_hit": false,
     "tp3_hit": false,
-    "sl_hit": false,
+    "sl_hit": true,
     "last_notified_profit": 0.0,
     "opened_utc": "2026-05-25T04:36:21.211665+00:00",
-    "result": "open"
+    "result": "SL"
   }
 ]
