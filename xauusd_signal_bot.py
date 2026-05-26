@@ -27,10 +27,12 @@ GITHUB_REPO         = os.environ.get("GITHUB_REPO", "Isyrafimran25/MTUPremiumSig
 FINNHUB_API_KEY     = os.environ.get("FINNHUB_API_KEY", "")
 
 # ── Config ────────────────────────────────────────────────────────────────────
-MAX_SIGNALS_PER_DAY = 10
-COOLDOWN_MINUTES    = 90
-SYMBOL              = "XAU/USD"
-INTERVAL            = "15min"
+MAX_SIGNALS_PER_DAY    = 10
+COOLDOWN_MINUTES       = 90
+SYMBOL                 = "XAU/USD"
+INTERVAL               = "15min"
+RUNNING_PROFIT_TRIGGER = 3.0   # pips threshold to trigger first running profit update (3.0 = 30 pips)
+RUNNING_PROFIT_STEP    = 3.0   # notify again every additional 30 pips after that
 
 # ── Persistent storage paths ──────────────────────────────────────────────────
 import pathlib as _pathlib
@@ -729,6 +731,97 @@ def notify_signal_update(sig: dict):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# v4: RUNNING PROFIT NOTIFICATION
+# Fires when price runs >= 30 pips from entry, then every 30 pips after that.
+# Uses last_notified_profit field to avoid spam.
+# ══════════════════════════════════════════════════════════════════════════════
+def notify_running_profit(sig: dict, current_price: float) -> dict:
+    """
+    Check if price has moved >= RUNNING_PROFIT_TRIGGER pips from entry.
+    Send update if crossed a new 30-pip milestone not yet notified.
+    Returns updated sig dict (with last_notified_profit bumped if notified).
+    """
+    direction = sig.get("type", "BUY")
+    entry     = sig.get("entry", 0)
+    result    = sig.get("result", "open")
+
+    # Only track open signals
+    if result != "open":
+        return sig
+
+    # Calculate current floating pips
+    if direction == "BUY":
+        floating_pips = round((current_price - entry) * 10, 1)
+    else:
+        floating_pips = round((entry - current_price) * 10, 1)
+
+    # Only care about positive floating
+    if floating_pips <= RUNNING_PROFIT_TRIGGER * 10:
+        return sig
+
+    last_notified = sig.get("last_notified_profit", 0.0)
+
+    # Work out next milestone not yet notified
+    # e.g. TRIGGER=3.0 → milestones at 30, 60, 90 pips (stored as 3.0, 6.0, 9.0)
+    milestone = last_notified + RUNNING_PROFIT_STEP * 10  # first un-notified milestone
+
+    if floating_pips < milestone:
+        return sig  # hasn't crossed next milestone yet
+
+    # Find highest milestone crossed
+    steps_crossed  = int(floating_pips // (RUNNING_PROFIT_STEP * 10))
+    new_milestone  = steps_crossed * RUNNING_PROFIT_STEP * 10
+
+    if new_milestone <= last_notified:
+        return sig  # already notified for this level
+
+    # Build message
+    dir_emoji  = "📈" if direction == "BUY" else "📉"
+    entry_val  = entry
+    tp1        = sig.get("tp1")
+    tp2        = sig.get("tp2")
+    tp3        = sig.get("tp3")
+    session    = sig.get("session", "")
+
+    # Progress bar-style milestone label
+    if floating_pips >= abs(tp3 - entry) * 10 * 0.9:
+        milestone_label = "🔥 Approaching TP3!"
+    elif floating_pips >= abs(tp2 - entry) * 10 * 0.9:
+        milestone_label = "⚡ Approaching TP2!"
+    elif floating_pips >= abs(tp1 - entry) * 10 * 0.9:
+        milestone_label = "💹 Approaching TP1!"
+    else:
+        milestone_label = "🚀 Trade running strong!"
+
+    msg = (
+        f"💰 <b>RUNNING PROFIT UPDATE</b>\n"
+        f"━━━━━━━━━━━━━━━━\n"
+        f"{dir_emoji} {direction} XAUUSD\n"
+        f"▸ Entry   : {entry_val}\n"
+        f"▸ Now     : {current_price}  (<b>+{floating_pips:.0f} pips</b> 🟢)\n"
+        f"▸ TP1     : {tp1}\n"
+        f"▸ TP2     : {tp2}\n"
+        f"▸ TP3     : {tp3}\n"
+    )
+    if session:
+        msg += f"▸ Session : {session}\n"
+    msg += (
+        f"━━━━━━━━━━━━━━━━\n"
+        f"{milestone_label}\n"
+        f"🔔 MTU Premium Signal Gold"
+    )
+
+    try:
+        send_to_telegram(msg)
+        print(f"💰 Running profit notified: {direction} @ {entry} → +{floating_pips:.0f} pips (price={current_price})")
+        sig["last_notified_profit"] = new_milestone
+    except Exception as e:
+        print(f"❌ Running profit notify failed: {e}")
+
+    return sig
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # FIX v3: result→status sync map
 # ══════════════════════════════════════════════════════════════════════════════
 RESULT_TO_STATUS = {
@@ -888,9 +981,12 @@ def update_open_signals(current_price: float) -> list:
         if new_result and new_result != old_result:
             print(f"📊 Signal update: {direction} @ {entry} → {new_result} (price={current_price})")
             sig["result"] = new_result
-            sig = sync_status(sig)       # FIX: sync status + boolean flags
-            notify_signal_update(sig)    # FIX: send Telegram notification
-        
+            sig = sync_status(sig)       # sync status + boolean flags
+            notify_signal_update(sig)    # send TP/SL hit notification
+        else:
+            # Still open -- check running profit milestone
+            sig = notify_running_profit(sig, current_price)
+
         updated.append(sig)
 
     save_open_signals(updated)
