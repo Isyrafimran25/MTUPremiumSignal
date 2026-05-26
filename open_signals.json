@@ -2150,5 +2150,24 @@
     "last_notified_profit": 0.0,
     "opened_utc": "2026-05-25T16:57:56.989217+00:00",
     "result": "SL"
+  },
+  {
+    "id": "202605260039",
+    "type": "SELL",
+    "entry": 4548.34703,
+    "sl": 4553.35,
+    "tp1": 4543.35,
+    "tp2": 4538.35,
+    "tp3": 4532.27,
+    "confidence": "MEDIUM",
+    "session": "Asia",
+    "status": "open",
+    "tp1_hit": false,
+    "tp2_hit": false,
+    "tp3_hit": false,
+    "sl_hit": false,
+    "last_notified_profit": 0.0,
+    "opened_utc": "2026-05-26T00:39:32.020000+00:00",
+    "result": "open"
   }
 ]
