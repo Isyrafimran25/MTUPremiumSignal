@@ -2203,5 +2203,23 @@
     "last_notified_profit": 0.0,
     "opened_utc": "2026-05-26T03:45:59.119246+00:00",
     "result": "SL"
+  },
+  {
+    "type": "BUY",
+    "entry": 4532.75812,
+    "sl": 4528.55,
+    "tp1": 4536.97,
+    "tp2": 4541.18,
+    "tp3": 4545.39,
+    "result": "open",
+    "status": "open",
+    "tp1_hit": false,
+    "tp2_hit": false,
+    "tp3_hit": false,
+    "sl_hit": false,
+    "score": 5,
+    "sent_at": "2026-05-26T07:04:36.728944+00:00",
+    "session": "Asia / London",
+    "confidence": "MEDIUM"
   }
 ]
