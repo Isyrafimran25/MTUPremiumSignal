@@ -2257,5 +2257,23 @@
     "sent_at": "2026-05-26T11:34:47.954256+00:00",
     "session": "London",
     "confidence": "MEDIUM"
+  },
+  {
+    "type": "BUY",
+    "entry": 4516.63134,
+    "sl": 4513.2,
+    "tp1": 4520.06,
+    "tp2": 4523.49,
+    "tp3": 4524.26,
+    "result": "open",
+    "status": "open",
+    "tp1_hit": false,
+    "tp2_hit": false,
+    "tp3_hit": false,
+    "sl_hit": false,
+    "score": 5,
+    "sent_at": "2026-05-27T01:09:44.535332+00:00",
+    "session": "Asia",
+    "confidence": "MEDIUM"
   }
 ]
