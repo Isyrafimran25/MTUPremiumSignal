@@ -2364,6 +2364,7 @@
     "score": 5,
     "sent_at": "2026-05-29T05:54:49.434561+00:00",
     "session": "Asia",
-    "confidence": "MEDIUM"
+    "confidence": "MEDIUM",
+    "last_notified_profit": 30.0
   }
 ]
