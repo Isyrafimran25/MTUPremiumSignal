@@ -2329,5 +2329,23 @@
     "sent_at": "2026-05-28T00:13:53.654669+00:00",
     "session": "Asia",
     "confidence": "MEDIUM"
+  },
+  {
+    "type": "BUY",
+    "entry": 4507.32409,
+    "sl": 4502.32,
+    "tp1": 4512.32,
+    "tp2": 4517.32,
+    "tp3": 4522.32,
+    "result": "open",
+    "status": "open",
+    "tp1_hit": false,
+    "tp2_hit": false,
+    "tp3_hit": false,
+    "sl_hit": false,
+    "score": 5,
+    "sent_at": "2026-05-29T02:42:25.365288+00:00",
+    "session": "Asia",
+    "confidence": "MEDIUM"
   }
 ]
