@@ -2,11 +2,14 @@
 # XAUUSD AI Scalping Signal Bot -- MTU Premium
 # Strategy: S&R, S&D, Engulfing, Market Structure, RSI, EMA, MACD
 # Timeframe: 15-min | Sessions: Asia, London, New York
-# FIXES v3:
-#   v2 fixes preserved
-#   v3 NEW: notify_signal_update() -- Telegram notification on TP/SL hit
-#   v3 NEW: update_open_signals() -- detect status change + sync status field
-#   v3 NEW: save new signal with status="open" synced
+#
+# PATCHES v3 (Jun 2026):
+#   FIX A: Morning update duplicate bug -- daily tracker file + correct UTC hour (0 = 08:00 MYT)
+#   FIX B: Break-even SL logic -- bila TP1 hit, move SL ke entry; TP2 hit, lock TP1
+#   FIX C: Wider SL (1.8x ATR), MAX_SL 70 pips, MIN_RR 2.0
+#   FIX D: MIN_SCORE → 6, HIGH confidence → 9, MAX_SIGNALS → 6/day, COOLDOWN → 120 min
+#   FIX E: Doji/weak candle filter (body must be ≥35% of range)
+#   FIX F: Stronger H1 trend filter (0.5x ATR threshold, was 0.3x)
 
 import os
 import json
@@ -26,19 +29,18 @@ GITHUB_TOKEN        = os.environ.get("GITHUB_TOKEN", "")
 GITHUB_REPO         = os.environ.get("GITHUB_REPO", "Isyrafimran25/MTUPremiumSignal")
 FINNHUB_API_KEY     = os.environ.get("FINNHUB_API_KEY", "")
 
-# ── Config ────────────────────────────────────────────────────────────────────
-MAX_SIGNALS_PER_DAY    = 10
-COOLDOWN_MINUTES       = 90
-SYMBOL                 = "XAU/USD"
-INTERVAL               = "15min"
-RUNNING_PROFIT_TRIGGER = 3.0   # pips threshold to trigger first running profit update (3.0 = 30 pips)
-RUNNING_PROFIT_STEP    = 3.0   # notify again every additional 30 pips after that
+# ── Config (PATCH D: tightened thresholds) ────────────────────────────────────
+MAX_SIGNALS_PER_DAY = 6        # was 10 — quality over quantity
+COOLDOWN_MINUTES    = 120      # was 90 — lebih breathing room
+SYMBOL              = "XAU/USD"
+INTERVAL            = "15min"
 
 # ── Persistent storage paths ──────────────────────────────────────────────────
 import pathlib as _pathlib
 _DATA_DIR        = _pathlib.Path("/data") if _pathlib.Path("/data").exists() else _pathlib.Path(".")
-SIGNAL_COUNT_FILE = str(_DATA_DIR / "signal_count.json")
-OPEN_SIGNALS_FILE = str(_DATA_DIR / "open_signals.json")
+SIGNAL_COUNT_FILE    = str(_DATA_DIR / "signal_count.json")
+OPEN_SIGNALS_FILE    = str(_DATA_DIR / "open_signals.json")
+MORNING_TRACKER_FILE = str(_DATA_DIR / "morning_sent.json")
 print(f"Storage directory: {_DATA_DIR} ({'persistent' if str(_DATA_DIR) == '/data' else 'non-persistent -- add Railway Volume!'})")
 
 # ── Session helpers ───────────────────────────────────────────────────────────
@@ -156,6 +158,38 @@ def cooldown_ok(state: dict) -> bool:
             datetime.fromisoformat(last)).total_seconds() / 60
     return diff >= COOLDOWN_MINUTES
 
+# ── PATCH A: Morning update tracker ──────────────────────────────────────────
+def morning_sent_today() -> bool:
+    """Check sama ada morning update dah hantar hari ini."""
+    today_str = str(date.today())
+    # Local check dulu
+    try:
+        with open(MORNING_TRACKER_FILE) as f:
+            if json.load(f).get("date") == today_str:
+                return True
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+    # GitHub fallback (kalau Railway restart, local file hilang)
+    content, _ = github_get_file("morning_sent.json")
+    if content:
+        try:
+            if json.loads(content).get("date") == today_str:
+                # Sync balik ke local
+                with open(MORNING_TRACKER_FILE, "w") as f:
+                    f.write(content)
+                return True
+        except:
+            pass
+    return False
+
+def mark_morning_sent():
+    data = {"date": str(date.today()),
+            "sent_utc": datetime.now(timezone.utc).isoformat()}
+    payload = json.dumps(data)
+    with open(MORNING_TRACKER_FILE, "w") as f:
+        f.write(payload)
+    github_push_file("morning_sent.json", payload, "mark morning sent")
+
 # ── Twelve Data fetcher ───────────────────────────────────────────────────────
 def td_get(endpoint: str, **params) -> dict:
     url = f"https://api.twelvedata.com/{endpoint}"
@@ -226,6 +260,7 @@ def compute_macd(closes: list, fast=12, slow=26, signal=9):
     signal_line = compute_ema(macd_line, signal)
     return macd_line, signal_line
 
+# ── PATCH F: Stronger H1 trend filter ────────────────────────────────────────
 def get_h1_trend() -> str:
     try:
         data    = td_get("time_series", interval="1h", outputsize=20)
@@ -237,9 +272,10 @@ def get_h1_trend() -> str:
         avg_older  = sum(closes[5:]) / 5
         diff       = avg_recent - avg_older
         atr_h1     = abs(float(candles[0]["high"]) - float(candles[0]["low"]))
-        if diff > atr_h1 * 0.3:
+        # FIX F: threshold tightened from 0.3 → 0.5 (need stronger trend)
+        if diff > atr_h1 * 0.5:
             return "bullish"
-        elif diff < -atr_h1 * 0.3:
+        elif diff < -atr_h1 * 0.5:
             return "bearish"
         return "neutral"
     except Exception as e:
@@ -474,7 +510,16 @@ def check_conditions(d: dict) -> tuple:
     atr     = d["atr"]
     avg_atr = d["avg_atr"]
 
+    # Volatility gate
     if atr < avg_atr * 0.85:
+        return None, None, None, 0, {}
+
+    # ── PATCH E: Doji / weak body filter ──
+    c0 = candles[0]
+    body0  = abs(c0["close"] - c0["open"])
+    range0 = c0["high"] - c0["low"]
+    if range0 > 0 and body0 / range0 < 0.35:
+        print(f"Weak candle (body {body0/range0:.0%} of range) -- skip")
         return None, None, None, 0, {}
 
     structure = detect_market_structure(candles)
@@ -495,6 +540,7 @@ def check_conditions(d: dict) -> tuple:
     ):
         return None, None, None, 0, {}
 
+    # ── BUY score ─────────────────────────────────────────────────────────────
     buy_score   = 0
     buy_reasons = []
     buy_data    = {}
@@ -545,6 +591,7 @@ def check_conditions(d: dict) -> tuple:
         buy_reasons.append("MACD bullish crossover")
         buy_data["macd"] = "bullish"
 
+    # ── SELL score ────────────────────────────────────────────────────────────
     sell_score   = 0
     sell_reasons = []
     sell_data    = {}
@@ -595,6 +642,7 @@ def check_conditions(d: dict) -> tuple:
         sell_reasons.append("MACD bearish crossover")
         sell_data["macd"] = "bearish"
 
+    # ── H1 trend filter ───────────────────────────────────────────────────────
     h1_trend = d.get("h1_trend", "neutral")
 
     if h1_trend == "bearish" and buy_score > sell_score:
@@ -604,30 +652,33 @@ def check_conditions(d: dict) -> tuple:
         print(f"H1 BULLISH -- blocking SELL (score {sell_score}). Only BUY allowed.")
         sell_score = 0
 
-    MIN_SCORE = 5
+    # ── PATCH D: MIN_SCORE 6, HIGH confidence 9 ──
+    MIN_SCORE = 6
 
     if buy_score >= sell_score and buy_score >= MIN_SCORE:
-        confidence = "HIGH" if buy_score >= 8 else "MEDIUM"
+        confidence = "HIGH" if buy_score >= 9 else "MEDIUM"
         analysis   = {**buy_data, "sr": sr, "sd": sd, "score": buy_score}
         return "BUY", buy_reasons, confidence, buy_score, analysis
 
     if sell_score > buy_score and sell_score >= MIN_SCORE:
-        confidence = "HIGH" if sell_score >= 8 else "MEDIUM"
+        confidence = "HIGH" if sell_score >= 9 else "MEDIUM"
         analysis   = {**sell_data, "sr": sr, "sd": sd, "score": sell_score}
         return "SELL", sell_reasons, confidence, sell_score, analysis
 
     return None, None, None, 0, {}
 
-# ── Level calculator ──────────────────────────────────────────────────────────
+# ── PATCH C: Level calculator -- wider SL, higher RR ─────────────────────────
 def calculate_levels(signal_type: str, price: float, atr: float, sr: dict) -> dict:
-    MAX_SL_PIPS = 50
+    MAX_SL_PIPS = 70       # was 50 — kasi room untuk noise
     MIN_RR      = 2.0
     MIN_TP_GAP  = 0.5
+    SL_ATR_MULT = 1.8      # was 1.2 — wider SL
+    SL_BUFFER   = 0.5      # was 0.3 — extra buffer dari S/R
 
     if signal_type == "BUY":
         entry      = price
-        sl_sr      = round(sr.get("support",    price - atr * 1.2) - atr * 0.3, 2)
-        sl_atr     = round(price - atr * 1.2, 2)
+        sl_sr      = round(sr.get("support",    price - atr * SL_ATR_MULT) - atr * SL_BUFFER, 2)
+        sl_atr     = round(price - atr * SL_ATR_MULT, 2)
         sl_raw     = max(sl_sr, sl_atr)
         sl_cap     = round(price - (MAX_SL_PIPS / 10), 2)
         sl         = round(max(sl_raw, sl_cap), 2)
@@ -639,8 +690,8 @@ def calculate_levels(signal_type: str, price: float, atr: float, sr: dict) -> di
         tp3        = round(tp3_sr if tp3_sr > tp2 else tp3_base, 2)
     else:
         entry      = price
-        sl_sr      = round(sr.get("resistance", price + atr * 1.2) + atr * 0.3, 2)
-        sl_atr     = round(price + atr * 1.2, 2)
+        sl_sr      = round(sr.get("resistance", price + atr * SL_ATR_MULT) + atr * SL_BUFFER, 2)
+        sl_atr     = round(price + atr * SL_ATR_MULT, 2)
         sl_raw     = min(sl_sr, sl_atr)
         sl_cap     = round(price + (MAX_SL_PIPS / 10), 2)
         sl         = round(min(sl_raw, sl_cap), 2)
@@ -667,183 +718,6 @@ def calculate_levels(signal_type: str, price: float, atr: float, sr: dict) -> di
         "blocked": False, "entry": entry, "sl": sl,
         "tp1": tp1, "tp2": tp2, "tp3": tp3, "risk": actual_risk
     }
-
-# ══════════════════════════════════════════════════════════════════════════════
-# FIX v3: TELEGRAM NOTIFICATION ON TP/SL HIT
-# ══════════════════════════════════════════════════════════════════════════════
-def notify_signal_update(sig: dict):
-    """Send Telegram notification when a signal hits TP1/TP2/TP3 or SL."""
-    direction  = sig.get("type", "BUY")
-    entry      = sig.get("entry", 0)
-    new_result = sig.get("result", "")
-
-    # Map result → emoji + label
-    result_map = {
-        "TP1": ("✅", "TP1 HIT",  "win"),
-        "TP2": ("✅✅", "TP2 HIT", "win"),
-        "TP3": ("🏆🔥", "TP3 HIT — FULL TARGET!", "win"),
-        "SL":  ("❌", "SL HIT",   "loss"),
-    }
-
-    if new_result not in result_map:
-        return
-
-    emoji, label, outcome = result_map[new_result]
-
-    # Calculate pips
-    tp_key = new_result.lower()  # tp1 / tp2 / tp3 / sl
-    level_val = sig.get(tp_key, entry)
-    pips = round(abs(level_val - entry) * 10, 1)
-    sign = "+" if outcome == "win" else "-"
-
-    dir_emoji = "📈" if direction == "BUY" else "📉"
-    session   = sig.get("session", "")
-
-    msg = (
-        f"{emoji} <b>{label}</b>\n"
-        f"━━━━━━━━━━━━━━━━\n"
-        f"{dir_emoji} {direction} XAUUSD\n"
-        f"▸ Entry  : {entry}\n"
-        f"▸ {new_result.ljust(6)} : {level_val}  ({sign}{pips} pips)\n"
-    )
-
-    # Show remaining TPs if partially closed
-    if new_result in ("TP1", "TP2"):
-        if new_result == "TP1":
-            msg += f"▸ TP2    : {sig.get('tp2')}  🎯\n"
-            msg += f"▸ TP3    : {sig.get('tp3')}  🎯\n"
-        elif new_result == "TP2":
-            msg += f"▸ TP3    : {sig.get('tp3')}  🎯\n"
-
-    if session:
-        msg += f"▸ Session: {session}\n"
-
-    msg += (
-        f"━━━━━━━━━━━━━━━━\n"
-        f"🔔 MTU Premium Signal Gold"
-    )
-
-    try:
-        send_to_telegram(msg)
-        print(f"✅ Notified Telegram: {direction} {new_result} @ {level_val} ({sign}{pips} pips)")
-    except Exception as e:
-        print(f"❌ Notify failed: {e}")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# v4: RUNNING PROFIT NOTIFICATION
-# Fires when price runs >= 30 pips from entry, then every 30 pips after that.
-# Uses last_notified_profit field to avoid spam.
-# ══════════════════════════════════════════════════════════════════════════════
-def notify_running_profit(sig: dict, current_price: float) -> dict:
-    """
-    Check if price has moved >= RUNNING_PROFIT_TRIGGER pips from entry.
-    Send update if crossed a new 30-pip milestone not yet notified.
-    Returns updated sig dict (with last_notified_profit bumped if notified).
-    """
-    direction = sig.get("type", "BUY")
-    entry     = sig.get("entry", 0)
-    result    = sig.get("result", "open")
-
-    # Only track open signals
-    if result != "open":
-        return sig
-
-    # Calculate current floating pips
-    if direction == "BUY":
-        floating_pips = round((current_price - entry) * 10, 1)
-    else:
-        floating_pips = round((entry - current_price) * 10, 1)
-
-    # Only care about positive floating
-    if floating_pips <= RUNNING_PROFIT_TRIGGER * 10:
-        return sig
-
-    last_notified = sig.get("last_notified_profit", 0.0)
-
-    # Work out next milestone not yet notified
-    # e.g. TRIGGER=3.0 → milestones at 30, 60, 90 pips (stored as 3.0, 6.0, 9.0)
-    milestone = last_notified + RUNNING_PROFIT_STEP * 10  # first un-notified milestone
-
-    if floating_pips < milestone:
-        return sig  # hasn't crossed next milestone yet
-
-    # Find highest milestone crossed
-    steps_crossed  = int(floating_pips // (RUNNING_PROFIT_STEP * 10))
-    new_milestone  = steps_crossed * RUNNING_PROFIT_STEP * 10
-
-    if new_milestone <= last_notified:
-        return sig  # already notified for this level
-
-    # Build message
-    dir_emoji  = "📈" if direction == "BUY" else "📉"
-    entry_val  = entry
-    tp1        = sig.get("tp1")
-    tp2        = sig.get("tp2")
-    tp3        = sig.get("tp3")
-    session    = sig.get("session", "")
-
-    # Progress bar-style milestone label
-    if floating_pips >= abs(tp3 - entry) * 10 * 0.9:
-        milestone_label = "🔥 Approaching TP3!"
-    elif floating_pips >= abs(tp2 - entry) * 10 * 0.9:
-        milestone_label = "⚡ Approaching TP2!"
-    elif floating_pips >= abs(tp1 - entry) * 10 * 0.9:
-        milestone_label = "💹 Approaching TP1!"
-    else:
-        milestone_label = "🚀 Trade running strong!"
-
-    msg = (
-        f"💰 <b>RUNNING PROFIT UPDATE</b>\n"
-        f"━━━━━━━━━━━━━━━━\n"
-        f"{dir_emoji} {direction} XAUUSD\n"
-        f"▸ Entry   : {entry_val}\n"
-        f"▸ Now     : {current_price}  (<b>+{floating_pips:.0f} pips</b> 🟢)\n"
-        f"▸ TP1     : {tp1}\n"
-        f"▸ TP2     : {tp2}\n"
-        f"▸ TP3     : {tp3}\n"
-    )
-    if session:
-        msg += f"▸ Session : {session}\n"
-    msg += (
-        f"━━━━━━━━━━━━━━━━\n"
-        f"{milestone_label}\n"
-        f"🔔 MTU Premium Signal Gold"
-    )
-
-    try:
-        send_to_telegram(msg)
-        print(f"💰 Running profit notified: {direction} @ {entry} → +{floating_pips:.0f} pips (price={current_price})")
-        sig["last_notified_profit"] = new_milestone
-    except Exception as e:
-        print(f"❌ Running profit notify failed: {e}")
-
-    return sig
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# FIX v3: result→status sync map
-# ══════════════════════════════════════════════════════════════════════════════
-RESULT_TO_STATUS = {
-    "open": "open",
-    "TP1":  "tp1_hit",
-    "TP2":  "tp2_hit",
-    "TP3":  "closed",
-    "SL":   "sl_hit",
-}
-
-def sync_status(sig: dict) -> dict:
-    """Keep 'status' field in sync with 'result' field."""
-    result = sig.get("result", "open")
-    sig["status"] = RESULT_TO_STATUS.get(result, "open")
-
-    # Also sync tp1_hit / tp2_hit / tp3_hit / sl_hit boolean flags
-    sig["tp1_hit"] = result in ("TP1", "TP2", "TP3")
-    sig["tp2_hit"] = result in ("TP2", "TP3")
-    sig["tp3_hit"] = result == "TP3"
-    sig["sl_hit"]  = result == "SL"
-    return sig
-
 
 # ── AI signal message generator ───────────────────────────────────────────────
 def generate_signal_message(signal_type: str, d: dict, confidence: str,
@@ -944,48 +818,69 @@ def load_open_signals() -> list:
 def save_open_signals(signals: list):
     save_open_signals_github(signals)
 
-# ══════════════════════════════════════════════════════════════════════════════
-# FIX v3: update_open_signals -- detect change + notify + sync status field
-# ══════════════════════════════════════════════════════════════════════════════
+# ── PATCH B: Break-even logic + better result tracking ───────────────────────
 def update_open_signals(current_price: float) -> list:
     signals = load_open_signals()
     updated = []
-
     for sig in signals:
-        direction  = sig.get("type", "BUY")
-        sl         = sig.get("sl")
-        tp3        = sig.get("tp3")
-        tp2        = sig.get("tp2")
-        tp1        = sig.get("tp1")
-        entry      = sig.get("entry")
-        old_result = sig.get("result", "open")
+        direction = sig.get("type", "BUY")
+        entry     = sig.get("entry")
+        sl        = sig.get("sl")
+        tp1       = sig.get("tp1")
+        tp2       = sig.get("tp2")
+        tp3       = sig.get("tp3")
+        result    = sig.get("result", "open")
 
-        # Already resolved -- just sync status in case it's out of date
-        if old_result != "open":
-            updated.append(sync_status(sig))
+        # Skip kalau dah closed dengan TP3, SL, atau BE
+        if result in ("TP3", "SL", "BE"):
+            updated.append(sig)
             continue
 
-        # Evaluate new result
-        new_result = None
+        # ── BREAK-EVEN LOGIC ──
+        # TP1 hit → move SL ke entry (zero risk)
+        # TP2 hit → move SL ke TP1 (lock partial profit)
         if direction == "BUY":
-            if   current_price <= sl:   new_result = "SL"
-            elif current_price >= tp3:  new_result = "TP3"
-            elif current_price >= tp2:  new_result = "TP2"
-            elif current_price >= tp1:  new_result = "TP1"
-        else:  # SELL
-            if   current_price >= sl:   new_result = "SL"
-            elif current_price <= tp3:  new_result = "TP3"
-            elif current_price <= tp2:  new_result = "TP2"
-            elif current_price <= tp1:  new_result = "TP1"
-
-        if new_result and new_result != old_result:
-            print(f"📊 Signal update: {direction} @ {entry} → {new_result} (price={current_price})")
-            sig["result"] = new_result
-            sig = sync_status(sig)       # sync status + boolean flags
-            notify_signal_update(sig)    # send TP/SL hit notification
+            if not sig.get("be_moved") and current_price >= tp1:
+                sig["sl"] = entry
+                sig["be_moved"] = True
+                print(f"BE moved: SL → {entry} (TP1 hit, BUY)")
+            if not sig.get("tp1_lock") and current_price >= tp2:
+                sig["sl"] = tp1
+                sig["tp1_lock"] = True
+                print(f"Profit lock: SL → {tp1} (TP2 hit, BUY)")
         else:
-            # Still open -- check running profit milestone
-            sig = notify_running_profit(sig, current_price)
+            if not sig.get("be_moved") and current_price <= tp1:
+                sig["sl"] = entry
+                sig["be_moved"] = True
+                print(f"BE moved: SL → {entry} (TP1 hit, SELL)")
+            if not sig.get("tp1_lock") and current_price <= tp2:
+                sig["sl"] = tp1
+                sig["tp1_lock"] = True
+                print(f"Profit lock: SL → {tp1} (TP2 hit, SELL)")
+
+        sl = sig["sl"]  # refresh after BE move
+
+        # ── Result detection ──
+        if direction == "BUY":
+            if current_price >= tp3:
+                sig["result"] = "TP3"; sig["tp3_hit"] = True
+            elif current_price >= tp2:
+                sig["result"] = "TP2"; sig["tp2_hit"] = True; sig["tp1_hit"] = True
+            elif current_price >= tp1:
+                sig["result"] = "TP1"; sig["tp1_hit"] = True
+            elif current_price <= sl:
+                sig["result"] = "BE" if sig.get("be_moved") else "SL"
+                sig["sl_hit"] = True
+        else:
+            if current_price <= tp3:
+                sig["result"] = "TP3"; sig["tp3_hit"] = True
+            elif current_price <= tp2:
+                sig["result"] = "TP2"; sig["tp2_hit"] = True; sig["tp1_hit"] = True
+            elif current_price <= tp1:
+                sig["result"] = "TP1"; sig["tp1_hit"] = True
+            elif current_price >= sl:
+                sig["result"] = "BE" if sig.get("be_moved") else "SL"
+                sig["sl_hit"] = True
 
         updated.append(sig)
 
@@ -1123,13 +1018,16 @@ def main():
         print(f"Cooldown aktif -- {COOLDOWN_MINUTES} minit antara isyarat.")
         return
 
-    # Consecutive SL protection
+    # Consecutive SL protection -- if 3 SL in a row, pause 2 hours
     recent_signals = load_open_signals()
-    recent_closed  = [s for s in recent_signals if s.get("result") != "open"][-5:]
+    recent_closed  = [s for s in recent_signals if s.get("result") not in ("open", None)][-5:]
     consecutive_sl = 0
     for sig in reversed(recent_closed):
+        # BE counts as neutral, SL counts as loss
         if sig.get("result") == "SL":
             consecutive_sl += 1
+        elif sig.get("result") == "BE":
+            continue  # BE is neutral, don't reset streak but don't count either
         else:
             break
     if consecutive_sl >= 3:
@@ -1150,7 +1048,7 @@ def main():
         print(f"Market data fetch failed: {e}")
         return
 
-    # Update open signals with current price (v3: now notifies on change)
+    # Update open signals with current price (includes BE moves)
     update_open_signals(data["price"])
 
     signal_type, reasons, confidence, score, analysis = check_conditions(data)
@@ -1184,27 +1082,24 @@ def main():
         print(f"Telegram send failed: {e}")
         return
 
-    # FIX v3: Save signal with status synced from the start
+    # Save signal to open signals list
     sr     = analysis.get("sr", {})
     levels = calculate_levels(signal_type, data["price"], data["atr"], sr)
     if not levels.get("blocked"):
         new_signal = {
-            "type":       signal_type,
-            "entry":      levels["entry"],
-            "sl":         levels["sl"],
-            "tp1":        levels["tp1"],
-            "tp2":        levels["tp2"],
-            "tp3":        levels["tp3"],
-            "result":     "open",
-            "status":     "open",       # FIX: sync from the start
-            "tp1_hit":    False,        # FIX: explicit boolean flags
-            "tp2_hit":    False,
-            "tp3_hit":    False,
-            "sl_hit":     False,
-            "score":      score,
-            "sent_at":    datetime.now(timezone.utc).isoformat(),
-            "session":    session,
+            "type":     signal_type,
+            "entry":    levels["entry"],
+            "sl":       levels["sl"],
+            "tp1":      levels["tp1"],
+            "tp2":      levels["tp2"],
+            "tp3":      levels["tp3"],
+            "result":   "open",
+            "score":    score,
             "confidence": confidence,
+            "sent_at":  datetime.now(timezone.utc).isoformat(),
+            "session":  session,
+            "be_moved": False,
+            "tp1_lock": False,
         }
         open_signals = load_open_signals()
         open_signals.append(new_signal)
@@ -1216,27 +1111,34 @@ def main():
     save_state(state)
     print(f"Signals today: {state['count']}/{MAX_SIGNALS_PER_DAY}")
 
-# ── Entry point ───────────────────────────────────────────────────────────────
+# ── Entry point (PATCH A: Morning tracker dalam loop) ────────────────────────
 if __name__ == "__main__":
+    # Handle CLI mode (untuk manual trigger morning/weekly)
     if len(sys.argv) > 1:
-        if sys.argv[1] == "morning":
+        mode = sys.argv[1].lower()
+        if mode == "morning":
+            print("Manual morning update triggered via CLI...")
             morning_update()
-            sys.exit(0)
-        elif sys.argv[1] == "weekly":
-            print("Weekly report not yet implemented.")
+            mark_morning_sent()
             sys.exit(0)
 
-    now_utc = datetime.now(timezone.utc)
-    if now_utc.hour == 7 and now_utc.minute < int(get_fetch_interval(7) / 60) + 1:
-        morning_update()
-
+    # Continuous worker loop
     while True:
         try:
+            now_utc = datetime.now(timezone.utc)
+
+            # Morning update: 00:00 UTC = 08:00 MYT, Mon–Fri, sekali sehari
+            if (now_utc.hour == 0
+                and now_utc.weekday() < 5
+                and not morning_sent_today()):
+                print("Triggering scheduled morning update (08:00 MYT)...")
+                morning_update()
+                mark_morning_sent()
+
             main()
         except Exception as e:
             print(f"main() crashed: {e}")
 
-        now_utc      = datetime.now(timezone.utc)
-        sleep_secs   = get_fetch_interval(now_utc.hour)
+        sleep_secs = get_fetch_interval(datetime.now(timezone.utc).hour)
         print(f"Sleeping {sleep_secs}s until next check...")
         time.sleep(sleep_secs)
