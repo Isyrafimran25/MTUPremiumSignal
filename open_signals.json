@@ -763,7 +763,7 @@
     "id": "202604291316",
     "type": "SELL",
     "entry": 4550.25445,
-    "sl": 4555.25,
+    "sl": 4545.25,
     "tp1": 4545.25,
     "tp2": 4540.25,
     "tp3": 4535.25,
@@ -772,11 +772,13 @@
     "status": "tp2_hit",
     "tp1_hit": true,
     "tp2_hit": true,
-    "tp3_hit": false,
+    "tp3_hit": true,
     "sl_hit": false,
     "last_notified_profit": 13.05,
     "opened_utc": "2026-04-29T13:16:48.071062+00:00",
-    "result": "TP2"
+    "result": "TP3",
+    "be_moved": true,
+    "tp1_lock": true
   },
   {
     "id": "202604291447",
@@ -1940,7 +1942,7 @@
   {
     "type": "BUY",
     "entry": 4463.59635,
-    "sl": 4458.6,
+    "sl": 4468.6,
     "tp1": 4468.6,
     "tp2": 4473.6,
     "tp3": 4478.6,
@@ -1952,7 +1954,9 @@
     "tp1_hit": true,
     "status": "tp2_hit",
     "tp3_hit": false,
-    "sl_hit": false
+    "sl_hit": false,
+    "be_moved": true,
+    "tp1_lock": true
   },
   {
     "type": "SELL",
@@ -2170,7 +2174,7 @@
     "id": "202605260039",
     "type": "SELL",
     "entry": 4548.34703,
-    "sl": 4553.35,
+    "sl": 4543.35,
     "tp1": 4543.35,
     "tp2": 4538.35,
     "tp3": 4532.27,
@@ -2179,11 +2183,13 @@
     "status": "tp2_hit",
     "tp1_hit": true,
     "tp2_hit": true,
-    "tp3_hit": false,
+    "tp3_hit": true,
     "sl_hit": false,
     "last_notified_profit": 0.0,
     "opened_utc": "2026-05-26T00:39:32.020000+00:00",
-    "result": "TP2"
+    "result": "TP3",
+    "be_moved": true,
+    "tp1_lock": true
   },
   {
     "id": "202605260345",
@@ -2355,12 +2361,12 @@
     "tp1": 4515.8,
     "tp2": 4520.8,
     "tp3": 4525.8,
-    "result": "TP1",
+    "result": "SL",
     "status": "tp1_hit",
     "tp1_hit": true,
     "tp2_hit": false,
     "tp3_hit": false,
-    "sl_hit": false,
+    "sl_hit": true,
     "score": 5,
     "sent_at": "2026-05-29T05:54:49.434561+00:00",
     "session": "Asia",
