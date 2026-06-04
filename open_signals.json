@@ -2444,5 +2444,20 @@
     "sent_at": "2026-06-02T03:23:13.547673+00:00",
     "session": "Asia",
     "confidence": "MEDIUM"
+  },
+  {
+    "type": "SELL",
+    "entry": 4459.94626,
+    "sl": 4464.85,
+    "tp1": 4455.05,
+    "tp2": 4450.15,
+    "tp3": 4448.6,
+    "result": "open",
+    "score": 8,
+    "confidence": "MEDIUM",
+    "sent_at": "2026-06-04T01:44:54.049613+00:00",
+    "session": "Asia",
+    "be_moved": false,
+    "tp1_lock": false
   }
 ]
