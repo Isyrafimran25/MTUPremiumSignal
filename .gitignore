@@ -1,0 +1,9 @@
+# Telegram session files -- JANGAN commit (akses penuh ke akaun)
+*.session
+*.session-journal
+session_string.txt
+
+# Python
+__pycache__/
+*.pyc
+.env
